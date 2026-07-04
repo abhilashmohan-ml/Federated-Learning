@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 COPY requirements/base.txt   requirements/base.txt
@@ -10,6 +10,7 @@ COPY shared/ shared/
 COPY client/ client/
 
 ENV PYTHONPATH=/app
-EXPOSE 8551
+ARG FLET_PORT=8551
+EXPOSE ${FLET_PORT}
 
 CMD ["python", "-m", "client.main"]

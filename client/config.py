@@ -16,6 +16,11 @@ class ClientSettings(BaseSettings):
     local_epochs: int       = 5
     learning_rate: float    = 0.001
     fedprox_mu: float       = 0.01
+    # Network resilience / security
+    verify_ssl: bool        = True   # set False only with self-signed dev certs
+    connect_timeout: int    = 10     # seconds to establish TCP connection
+    request_timeout: int    = 60     # seconds to wait for response
+    retry_attempts: int     = 3      # retries on transient network errors
 
 
 @lru_cache

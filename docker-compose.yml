@@ -1,8 +1,37 @@
 version: "3.9"
 
+# ── Network topology ──────────────────────────────────────────────────────────
+#
+#  db_net     : DB ↔ server only
+#  site_N_net : site_N ↔ server only
+#
+#  Each site container sits on its own isolated bridge network and can reach
+#  the server (which joins all networks) but cannot reach any other site or
+#  the database.  This mirrors the production topology where each manufacturing
+#  site is on a separate corporate network and connects to the central FL server
+#  over the internet.
+#
+#  Production deployment: replace SERVER_URL with the public server address,
+#  set VERIFY_SSL=true, and configure SSL_KEYFILE/SSL_CERTFILE on the server.
+#  See docs/PRODUCTION.md for the full deployment guide.
+
+networks:
+  db_net:
+    driver: bridge
+  site_1_net:
+    driver: bridge
+  site_2_net:
+    driver: bridge
+  site_3_net:
+    driver: bridge
+  site_4_net:
+    driver: bridge
+  site_5_net:
+    driver: bridge
+
 services:
 
-  # ── PostgreSQL database ───────────────────────────────────────────────────
+  # ── PostgreSQL database ─────────────────────────────────────────────────────
   db:
     image: postgres:16
     restart: unless-stopped
@@ -12,13 +41,15 @@ services:
       POSTGRES_DB:       viral_fl
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - db_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U viral_fl"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  # ── Aggregation server  (FastAPI + Flet dashboard) ────────────────────────
+  # ── Aggregation server  (FastAPI + Flet dashboard) ──────────────────────────
   server:
     build:
       context: .
@@ -34,98 +65,129 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ./certs:/certs:ro
+      - ./certs:/certs:ro    # mount TLS certs when SSL_KEYFILE/SSL_CERTFILE are set
+    networks:
+      - db_net
+      - site_1_net
+      - site_2_net
+      - site_3_net
+      - site_4_net
+      - site_5_net
 
-  # ── Site 1 client ─────────────────────────────────────────────────────────
+  # ── Site 1 client ───────────────────────────────────────────────────────────
   site_1:
     build:
       context: .
       dockerfile: client/Dockerfile
+      args:
+        FLET_PORT: "8551"
     restart: unless-stopped
     ports:
       - "8551:8551"
     env_file: .env
     environment:
-      SITE_ID:           site_1
-      SITE_SECRET:       secret_site_1
-      SERVER_URL:        http://server:8000
-      FLET_CLIENT_PORT:  "8551"
-      LOCAL_DATA_PATH:   /data/filtration.csv
+      SITE_ID:          site_1
+      SITE_SECRET:      ${SITE_1_SECRET}
+      SERVER_URL:       http://server:8000
+      FLET_CLIENT_PORT: "8551"
+      LOCAL_DATA_PATH:  /data/filtration.csv
     depends_on: [server]
     volumes:
       - ./data/site_1:/data:ro
+    networks:
+      - site_1_net
 
+  # ── Site 2 client ───────────────────────────────────────────────────────────
   site_2:
     build:
       context: .
       dockerfile: client/Dockerfile
+      args:
+        FLET_PORT: "8552"
     restart: unless-stopped
     ports:
       - "8552:8552"
     env_file: .env
     environment:
       SITE_ID:          site_2
-      SITE_SECRET:      secret_site_2
+      SITE_SECRET:      ${SITE_2_SECRET}
       SERVER_URL:       http://server:8000
       FLET_CLIENT_PORT: "8552"
       LOCAL_DATA_PATH:  /data/filtration.csv
     depends_on: [server]
     volumes:
       - ./data/site_2:/data:ro
+    networks:
+      - site_2_net
 
+  # ── Site 3 client ───────────────────────────────────────────────────────────
   site_3:
     build:
       context: .
       dockerfile: client/Dockerfile
+      args:
+        FLET_PORT: "8553"
     restart: unless-stopped
     ports:
       - "8553:8553"
     env_file: .env
     environment:
       SITE_ID:          site_3
-      SITE_SECRET:      secret_site_3
+      SITE_SECRET:      ${SITE_3_SECRET}
       SERVER_URL:       http://server:8000
       FLET_CLIENT_PORT: "8553"
       LOCAL_DATA_PATH:  /data/filtration.csv
     depends_on: [server]
     volumes:
       - ./data/site_3:/data:ro
+    networks:
+      - site_3_net
 
+  # ── Site 4 client ───────────────────────────────────────────────────────────
   site_4:
     build:
       context: .
       dockerfile: client/Dockerfile
+      args:
+        FLET_PORT: "8554"
     restart: unless-stopped
     ports:
       - "8554:8554"
     env_file: .env
     environment:
       SITE_ID:          site_4
-      SITE_SECRET:      secret_site_4
+      SITE_SECRET:      ${SITE_4_SECRET}
       SERVER_URL:       http://server:8000
       FLET_CLIENT_PORT: "8554"
       LOCAL_DATA_PATH:  /data/filtration.csv
     depends_on: [server]
     volumes:
       - ./data/site_4:/data:ro
+    networks:
+      - site_4_net
 
+  # ── Site 5 client ───────────────────────────────────────────────────────────
   site_5:
     build:
       context: .
       dockerfile: client/Dockerfile
+      args:
+        FLET_PORT: "8555"
     restart: unless-stopped
     ports:
       - "8555:8555"
     env_file: .env
     environment:
       SITE_ID:          site_5
-      SITE_SECRET:      secret_site_5
+      SITE_SECRET:      ${SITE_5_SECRET}
       SERVER_URL:       http://server:8000
       FLET_CLIENT_PORT: "8555"
       LOCAL_DATA_PATH:  /data/filtration.csv
     depends_on: [server]
     volumes:
       - ./data/site_5:/data:ro
+    networks:
+      - site_5_net
 
 volumes:
   pgdata:
