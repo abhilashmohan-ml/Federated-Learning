@@ -1,6 +1,48 @@
 # CLAUDE.md  —  Viral Filtration Federated Learning Project
 # AI coding assistant reference  (Claude Code / Cursor / Copilot)
 
+## MANDATORY DEVELOPMENT WORKFLOW  (non-negotiable — applies to every coding task)
+
+Every code change, no matter how small, MUST follow ALL five steps in order.
+Skipping or reordering any step is forbidden.
+
+### Step 1 — Plan  (superpowers planning skill)
+Before writing a single line of production code, invoke EnterPlanMode and/or
+the superpowers planning skill to create an implementation plan. Present the
+plan and obtain explicit user approval. Do not proceed until approved.
+
+### Step 2 — Implement and Test  (100% coverage, all tests must pass)
+Write production code AND unit tests in the same task.
+  - 100% line and branch coverage is required for all new/modified code in:
+        shared/   server/core/   client/engine/
+  - Run tests and verify:  pytest --cov=<module> --cov-report=term-missing
+  - Tests must contain real assertions — no stub tests or empty pass blocks
+  - ALL tests must be green before moving to Step 3
+  - Minimum coverage across the whole project remains 80% (Key Constraints)
+
+### Step 3 — Code Review  (superpowers:requesting-code-review)
+After implementation, invoke the code review skill before touching documentation:
+    Skill tool  ->  skill="superpowers:requesting-code-review"
+  - Fix ALL Critical findings immediately
+  - Fix ALL Important findings before proceeding
+  - Do not advance to Step 4 with any unresolved Critical or Important issues
+
+### Step 4 — Update Documentation
+For every task, before committing:
+  - Update docstrings for every changed or new public function
+  - Update WORKPLAN.md to mark completed items and note any new findings
+  - Update docs/ files (FUNCTIONAL_SPEC.md, TECHNICAL_SPEC.md, DB_SCHEMA.md,
+    DESIGN_SPEC.md, SYSTEM_DIAGRAM.html) if architecture, APIs, or schemas changed
+  - Create new documents in docs/ for any new component or subsystem introduced
+
+### Step 5 — Commit  (superpowers git-workflow)
+Commit using the superpowers git-workflow skill, or follow this format exactly:
+  - Stage specific files only — never  git add -A  or  git add .  blindly
+  - Commit message prefix:  feat:  fix:  test:  docs:  chore:  refactor:
+  - Never use --no-verify (do not skip pre-commit hooks)
+  - Never commit .env files, secrets, or credentials
+  - One logical change per commit
+
 ## Project Overview
 Federated Learning engine for viral filtration of monoclonal antibodies (mAbs)
 across 5 manufacturing sites.  No raw process data leaves any site.
