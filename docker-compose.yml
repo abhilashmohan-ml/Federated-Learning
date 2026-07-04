@@ -1,0 +1,131 @@
+version: "3.9"
+
+services:
+
+  # ── PostgreSQL database ───────────────────────────────────────────────────
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     viral_fl
+      POSTGRES_PASSWORD: viral_fl_pass
+      POSTGRES_DB:       viral_fl
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U viral_fl"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Aggregation server  (FastAPI + Flet dashboard) ────────────────────────
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"    # FastAPI REST + FL protocol
+      - "8550:8550"    # Flet server dashboard
+    env_file: .env
+    environment:
+      SERVER_DB_URL: postgresql+asyncpg://viral_fl:viral_fl_pass@db:5432/viral_fl
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./certs:/certs:ro
+
+  # ── Site 1 client ─────────────────────────────────────────────────────────
+  site_1:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8551:8551"
+    env_file: .env
+    environment:
+      SITE_ID:           site_1
+      SITE_SECRET:       secret_site_1
+      SERVER_URL:        http://server:8000
+      FLET_CLIENT_PORT:  "8551"
+      LOCAL_DATA_PATH:   /data/filtration.csv
+    depends_on: [server]
+    volumes:
+      - ./data/site_1:/data:ro
+
+  site_2:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8552:8552"
+    env_file: .env
+    environment:
+      SITE_ID:          site_2
+      SITE_SECRET:      secret_site_2
+      SERVER_URL:       http://server:8000
+      FLET_CLIENT_PORT: "8552"
+      LOCAL_DATA_PATH:  /data/filtration.csv
+    depends_on: [server]
+    volumes:
+      - ./data/site_2:/data:ro
+
+  site_3:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8553:8553"
+    env_file: .env
+    environment:
+      SITE_ID:          site_3
+      SITE_SECRET:      secret_site_3
+      SERVER_URL:       http://server:8000
+      FLET_CLIENT_PORT: "8553"
+      LOCAL_DATA_PATH:  /data/filtration.csv
+    depends_on: [server]
+    volumes:
+      - ./data/site_3:/data:ro
+
+  site_4:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8554:8554"
+    env_file: .env
+    environment:
+      SITE_ID:          site_4
+      SITE_SECRET:      secret_site_4
+      SERVER_URL:       http://server:8000
+      FLET_CLIENT_PORT: "8554"
+      LOCAL_DATA_PATH:  /data/filtration.csv
+    depends_on: [server]
+    volumes:
+      - ./data/site_4:/data:ro
+
+  site_5:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8555:8555"
+    env_file: .env
+    environment:
+      SITE_ID:          site_5
+      SITE_SECRET:      secret_site_5
+      SERVER_URL:       http://server:8000
+      FLET_CLIENT_PORT: "8555"
+      LOCAL_DATA_PATH:  /data/filtration.csv
+    depends_on: [server]
+    volumes:
+      - ./data/site_5:/data:ro
+
+volumes:
+  pgdata:
