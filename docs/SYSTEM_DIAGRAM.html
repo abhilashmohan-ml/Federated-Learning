@@ -41,7 +41,7 @@
       background: #fff; border-radius: 10px; padding: 28px;
       overflow-x: auto; box-shadow: 0 4px 32px rgba(0,0,0,0.5); margin-bottom: 28px;
     }
-    .diagram-wrap svg { display: block; max-width: none; }
+    .diagram-wrap svg { display: block; max-width: none !important; }
     h3.section-title { color: var(--accent); font-size: 1rem; margin: 28px 0 12px; letter-spacing: 0.04em; text-transform: uppercase; }
   </style>
 </head>
@@ -278,10 +278,10 @@ graph LR
     REQ["HTTP POST\n/federation/update\nAuthorization: Bearer token\nBody: ModelUpdate JSON"]
     MW["CORSMiddleware\nadd CORS headers"]
     BEARER["HTTPBearer\nextract token string"]
-    GCS["get_current_site\njwt.decode -> site_id\nor raise 401"]
+    GCS["get_current_site\njwt.decode returns site_id\nor raises 401"]
     GRM["get_round_manager\nreturn singleton"]
     GDBS["get_db\nAsyncSession"]
-    EP["receive_update endpoint\ncheck site_id mismatch -> 403\nawait rm.receive_update(update)"]
+    EP["receive_update endpoint\nsite_id mismatch raises 403\nawait rm.receive_update(update)"]
     RM_RU["RoundManager.receive_update\nbuffer update\ncheck quorum"]
     AGG2["_aggregate\nif quorum reached"]
     RESP["200 accepted\nsite_id, round_id"]
@@ -331,8 +331,7 @@ graph TD
     end
 
     subgraph COMMS["Comms  client/comms/"]
-        FLC["fl_client.py\nFLClient\n  authenticate() -> tokens\n  _request() + retry backoff\n  upload_update(ModelUpdate)\n  get_global_model()\n  _do_refresh()"]
-        HBMOD["heartbeat.py\nstart_heartbeat()\n_beat() thread function"]
+        FLC["fl_client.py\nFLClient\n  authenticate() returns tokens\n  _request() with retry backoff\n  upload_update(ModelUpdate)\n  get_global_model()\n  _do_refresh()"]
     end
 
     subgraph CCFG["Config  client/config.py"]
@@ -375,11 +374,11 @@ graph TD
     <div class="mermaid">
 graph TD
     subgraph PINN_MOD["pinn.py  --  FiltrationPINN"]
-        PP["ParameterPredictor  nn.Module\n11 inputs -> 128 -> 128 -> 64 -> 10 params\nSoftplus for positive params\nSigmoid for Pc  capture probability in 0..1"]
+        PP["ParameterPredictor  nn.Module\n11 inputs to 128 to 128 to 64 to 10 params\nSoftplus for positive params\nSigmoid for Pc  capture probability in 0..1"]
         PS["PhysicsSolver  nn.Module  no learnable weights\nJ(t) = J0 / (1+k1*t)^2 * exp(-k2*t)\nLRV = log10(1 / (1 - Pc))\ntorch.clamp for numerical stability"]
-        CLS["BlockingRegimeClassifier  nn.Module\n11 inputs -> 64 -> 5 class logits\ncross-entropy loss during training"]
+        CLS["BlockingRegimeClassifier  nn.Module\n11 inputs to 64 to 5 class logits\ncross-entropy loss during training"]
         FPINN["FiltrationPINN.forward(x, time)\nreturns J_t, LRV, params, regime_logits"]
-        LOSS["filtration_loss()\nL_flux  MSE of J_pred vs J_obs\nL_LRV   MSE of LRV_pred vs LRV_obs\nL_physics  constraint penalties\nL_regime  cross-entropy classification\nL_fedprox  (mu/2) * ||W_local - W_global||^2"]
+        LOSS["filtration_loss()\nL_flux  MSE of J_pred vs J_obs\nL_LRV   MSE of LRV_pred vs LRV_obs\nL_physics  constraint penalties\nL_regime  cross-entropy classification\nL_fedprox  (mu/2) x L2norm(W_local - W_global) sq"]
         PP  --> FPINN
         PS  --> FPINN
         CLS --> FPINN
@@ -450,8 +449,8 @@ sequenceDiagram
     AUTH ->> DB: SELECT site_registry WHERE site_id
     DB -->> AUTH: row with secret_hash
     AUTH ->> AUTH: bcrypt.verify(secret, hash)
-    AUTH ->> AUTH: _make_token -> access_token (15 min) + jti_A
-    AUTH ->> AUTH: _make_token -> refresh_token (7 days) + jti_R
+    AUTH ->> AUTH: issue access token 15min with jti_A
+    AUTH ->> AUTH: issue refresh token 7d with jti_R
     AUTH -->> SITE: access_token + refresh_token
 
     Note over SITE,PROT: 2) Using the access token
@@ -462,11 +461,11 @@ sequenceDiagram
 
     Note over SITE,DB: 3) Token rotation  (access expires after 15 min)
     SITE ->> AUTH: POST /auth/refresh  refresh_token
-    AUTH ->> AUTH: jwt.decode(refresh_token) -> jti_R + site_id
+    AUTH ->> AUTH: decode refresh token, extract jti_R
     AUTH ->> DB: SELECT revoked_tokens WHERE jti = jti_R
     DB -->> AUTH: NULL  not revoked yet
     AUTH ->> DB: INSERT revoked_tokens jti_R  consume single-use token
-    AUTH ->> AUTH: _make_token -> new access + refresh pair
+    AUTH ->> AUTH: issue new access and refresh pair
     AUTH -->> SITE: new access_token + new refresh_token
 
     Note over SITE,DB: 4) Replay attack blocked
@@ -528,25 +527,25 @@ graph TB
 
     HOST_BROWSER["Host Browser\nlocalhost  port 8000 and 8550-8555"]
 
-    SRV_DB2 --- POSTGRES
-    SRV_DB2 --- SERVER_CORE
-    SRV_S1  --- SERVER_CORE
-    SRV_S2  --- SERVER_CORE
-    SRV_S3  --- SERVER_CORE
-    SRV_S4  --- SERVER_CORE
-    SRV_S5  --- SERVER_CORE
-    SRV_S1  --- SITE1
-    SRV_S2  --- SITE2
-    SRV_S3  --- SITE3
-    SRV_S4  --- SITE4
-    SRV_S5  --- SITE5
+    SRV_DB2 --> POSTGRES
+    SRV_DB2 --> SERVER_CORE
+    SRV_S1  --> SERVER_CORE
+    SRV_S2  --> SERVER_CORE
+    SRV_S3  --> SERVER_CORE
+    SRV_S4  --> SERVER_CORE
+    SRV_S5  --> SERVER_CORE
+    SRV_S1  --> SITE1
+    SRV_S2  --> SITE2
+    SRV_S3  --> SITE3
+    SRV_S4  --> SITE4
+    SRV_S5  --> SITE5
 
-    HOST_BROWSER -->|"port-forward"| SERVER_CORE
-    HOST_BROWSER -->|"port-forward"| SITE1
-    HOST_BROWSER -->|"port-forward"| SITE2
-    HOST_BROWSER -->|"port-forward"| SITE3
-    HOST_BROWSER -->|"port-forward"| SITE4
-    HOST_BROWSER -->|"port-forward"| SITE5
+    HOST_BROWSER -->|port-forward| SERVER_CORE
+    HOST_BROWSER -->|port-forward| SITE1
+    HOST_BROWSER -->|port-forward| SITE2
+    HOST_BROWSER -->|port-forward| SITE3
+    HOST_BROWSER -->|port-forward| SITE4
+    HOST_BROWSER -->|port-forward| SITE5
 
     style SERVER_CORE fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
     style DB_NET      fill:#fff8e1,stroke:#f57f17,color:#e65100
@@ -578,28 +577,48 @@ graph TB
     }
   });
 
-  /* Track which tabs have already been rendered to avoid double-rendering. */
-  const rendered = new Set();
-
-  async function renderTab(id) {
-    if (rendered.has(id)) return;
-    rendered.add(id);
-    const nodes = document.querySelectorAll('#' + id + ' .mermaid');
-    if (nodes.length > 0) {
-      await mermaid.run({ nodes: Array.from(nodes) });
-    }
-  }
-
   function show(id, btn) {
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('nav button').forEach(el => el.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(function (el) {
+      el.classList.remove('active');
+      el.style.display = 'none';
+    });
+    document.querySelectorAll('nav button').forEach(function (el) {
+      el.classList.remove('active');
+    });
+    var section = document.getElementById(id);
+    section.classList.add('active');
+    section.style.display = 'block';
     btn.classList.add('active');
-    renderTab(id);
   }
 
-  /* Render the first (active) tab on page load. */
-  window.addEventListener('load', function () { renderTab('overview'); });
+  /* Render ALL diagrams on page load.
+     All tabs are made visible during rendering so Mermaid can measure
+     container dimensions correctly (display:none gives 0-width SVG). */
+  window.addEventListener('load', function () {
+    /* 1. Show every tab temporarily */
+    document.querySelectorAll('.tab-content').forEach(function (el) {
+      el.style.display = 'block';
+    });
+
+    /* 2. Render all .mermaid blocks at once with error suppression */
+    var allNodes = document.querySelectorAll('.mermaid');
+    mermaid.run({ nodes: Array.from(allNodes), suppressErrors: true }).then(function () {
+      /* 3. Remove any inline max-width Mermaid set on SVGs so wide diagrams scroll */
+      document.querySelectorAll('.mermaid svg').forEach(function (svg) {
+        svg.style.maxWidth = 'none';
+        svg.style.width = 'auto';
+      });
+    }).catch(function (err) {
+      console.warn('Mermaid render error:', err);
+    }).finally(function () {
+      /* 4. Hide non-active tabs (runs whether render succeeded or failed) */
+      document.querySelectorAll('.tab-content').forEach(function (el) {
+        if (!el.classList.contains('active')) {
+          el.style.display = 'none';
+        }
+      });
+    });
+  });
 </script>
 </body>
 </html>
