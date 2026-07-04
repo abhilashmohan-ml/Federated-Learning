@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Viral FL Project — System Diagram</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2a2d3e;
+      --accent: #7c6af7;
+      --accent2: #4db6ac;
+      --accent3: #f48fb1;
+      --text: #e0e0e0;
+      --muted: #888;
+      --tab-active: #7c6af7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.5; }
+    header { background: var(--card); border-bottom: 1px solid var(--border); padding: 20px 32px; }
+    header h1 { font-size: 1.5rem; color: var(--accent); letter-spacing: 0.02em; }
+    header p  { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+    nav { display: flex; gap: 0; background: var(--card); border-bottom: 1px solid var(--border); padding: 0 32px; flex-wrap: wrap; }
+    nav button {
+      background: none; border: none; border-bottom: 3px solid transparent;
+      color: var(--muted); cursor: pointer; font-size: 0.88rem; font-weight: 600;
+      padding: 12px 20px; transition: all 0.2s; letter-spacing: 0.03em; text-transform: uppercase;
+    }
+    nav button:hover  { color: var(--text); }
+    nav button.active { color: var(--tab-active); border-bottom-color: var(--tab-active); }
+    main { padding: 32px; max-width: 1600px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .intro { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; margin-bottom: 28px; }
+    .intro h2 { color: var(--accent2); font-size: 1.05rem; margin-bottom: 8px; }
+    .intro p  { color: var(--muted); font-size: 0.9rem; max-width: 900px; }
+    .intro ul { color: var(--muted); font-size: 0.9rem; margin: 8px 0 0 20px; }
+    .intro li { margin-bottom: 4px; }
+    .diagram-wrap {
+      background: #fff; border-radius: 10px; padding: 28px; overflow-x: auto;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.5);
+    }
+    .diagram-wrap .mermaid { min-width: 700px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--muted); }
+    .legend-swatch { width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0; }
+    h3.section-title { color: var(--accent); font-size: 1rem; margin: 28px 0 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Viral Filtration Federated Learning — System Diagrams</h1>
+  <p>Interactive architecture and interaction maps for all classes and functions.</p>
+</header>
+
+<nav>
+  <button class="active" onclick="show('overview')">System Overview</button>
+  <button onclick="show('fl-protocol')">FL Protocol Flow</button>
+  <button onclick="show('server-internal')">Server Internals</button>
+  <button onclick="show('client-internal')">Client Internals</button>
+  <button onclick="show('shared-models')">Shared Models</button>
+  <button onclick="show('auth-flow')">Auth Flow</button>
+  <button onclick="show('docker-network')">Docker Network</button>
+</nav>
+
+<main>
+
+<!-- ═══════════════════════════════════════════════════════ OVERVIEW ═══ -->
+<section id="overview" class="tab-content active">
+  <div class="intro">
+    <h2>System Overview</h2>
+    <p>Top-level view of the five manufacturing sites, the central FL server, and the shared library.
+       Each site runs an isolated Docker container. Only gradient updates (ΔW) travel between containers —
+       raw filtration data never leaves the site.</p>
+    <ul>
+      <li><strong>Shared Library</strong> — physics models, schemas, crypto: used by both server and all clients</li>
+      <li><strong>FL Server</strong> — aggregates model updates, manages rounds, issues JWTs</li>
+      <li><strong>Site Clients (×5)</strong> — load data locally, train, add DP noise, upload ΔW</li>
+    </ul>
+  </div>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+graph TB
+    subgraph SHARED["📦 Shared Library"]
+        direction TB
+        SH_MODELS["models/\nHermia · Manabe\nPolarization · PINN\nCombined-1A"]
+        SH_SCHEMAS["schemas/\nauth · federation\nfiltration"]
+        SH_CRYPTO["crypto/\nnoise · secure_agg"]
+        SH_UTILS["utils/\nconstants · logging"]
+    end
+
+    subgraph SERVER["🖥️  FL Server  (port 8000 + Flet :8550)"]
+        direction TB
+        SRV_API["API Layer\nauth · federation\nmodels · health"]
+        SRV_CORE["Core\nRoundManager\nFedProxAggregator\nModelRegistry"]
+        SRV_DB["Database\nSQLAlchemy/Alembic\nsite_registry · rounds\nmodel_updates · revoked_tokens"]
+        SRV_UI["Dashboard UI\nFlet (Plotly charts)"]
+        SRV_API --> SRV_CORE
+        SRV_CORE --> SRV_DB
+        SRV_CORE --> SRV_UI
+    end
+
+    subgraph SITES["🏭  Manufacturing Sites"]
+        direction LR
+        subgraph S1["Site 1"]
+            C1_ENG["Engine\nDataLoader\nLocalTrainer\nScheduler"]
+            C1_COMMS["Comms\nFLClient\nHeartbeat"]
+            C1_UI["Flet UI :8551"]
+            C1_DATA[("📄 filtration.csv")]
+        end
+        subgraph S2["Site 2"]
+            C2["Engine + Comms\n:8552"]
+        end
+        subgraph S3["Site 3"]
+            C3["Engine + Comms\n:8553"]
+        end
+        subgraph SMORE["Sites 4-5"]
+            CMORE["Engine + Comms\n:8554-8555"]
+        end
+    end
+
+    SHARED -->|imports| SERVER
+    SHARED -->|imports| S1
+    SHARED -->|imports| S2
+    SHARED -->|imports| S3
+    SHARED -->|imports| SMORE
+
+    C1_DATA -->|"read locally\n(never transmitted)"| C1_ENG
+    C1_ENG -->|"δW + metrics\n(POST /federation/update)"| SRV_API
+    SRV_API -->|"JWT tokens\n(POST /auth/token)"| C1_COMMS
+    SRV_CORE -->|"global W\n(GET /models/global-model)"| C1_COMMS
+    C1_COMMS -->|"GET /health/\nevery 30s"| SRV_API
+
+    S2 -->|"δW (DP-noised)"| SRV_API
+    S3 -->|"δW (DP-noised)"| SRV_API
+    SMORE -->|"δW (DP-noised)"| SRV_API
+
+    style SHARED fill:#1a2744,stroke:#7c6af7,color:#ccc
+    style SERVER fill:#1a2a1a,stroke:#4db6ac,color:#ccc
+    style SITES fill:#2a1a1a,stroke:#f48fb1,color:#ccc
+    style S1    fill:#3a2020,stroke:#f48fb1,color:#ddd
+    style S2    fill:#3a2020,stroke:#f48fb1,color:#ddd
+    style S3    fill:#3a2020,stroke:#f48fb1,color:#ddd
+    style SMORE fill:#3a2020,stroke:#f48fb1,color:#ddd
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════ FL PROTOCOL ═══ -->
+<section id="fl-protocol" class="tab-content">
+  <div class="intro">
+    <h2>Federated Learning Protocol Flow</h2>
+    <p>Sequence of calls across one complete FL round. Each round produces a new version of the global model.
+       The sequence repeats FL_ROUNDS times (default 50).</p>
+  </div>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+sequenceDiagram
+    participant OP as Operator
+    participant SRV as FL Server<br/>(RoundManager)
+    participant AGG as FedProxAggregator
+    participant DB as PostgreSQL
+    participant S1 as Site 1<br/>(Scheduler)
+    participant S2 as Site 2<br/>(Scheduler)
+    participant TR as LocalTrainer
+    participant DP as DP Noise
+
+    OP ->> SRV: POST /federation/round/start
+    SRV ->> DB: INSERT INTO rounds (status=collecting)
+    SRV -->> S1: 200 {round_id:1, status:"collecting"}
+    SRV -->> S2: 200 {round_id:1, status:"collecting"}
+    SRV ->> SRV: start timeout_guard (asyncio task)
+
+    Note over S1,DP: Site 1 local training (data stays on-site)
+    S1 ->> SRV: GET /models/global-model
+    SRV -->> S1: {weights: {hermia_params:[...]}}
+    S1 ->> TR: train_and_prepare_update(round_id=1)
+    TR ->> TR: load_filtration_csv()
+    TR ->> TR: fit_all_models(time, flux)  [Hermia AIC]
+    TR ->> TR: compute_flux_ratio(), compute_amin()
+    TR ->> DP: add_gaussian_noise(delta_W, sigma=0.01)
+    DP -->> TR: noisy_delta_W
+    TR -->> S1: ModelUpdate {delta_W, n_samples, metrics}
+    S1 ->> SRV: POST /federation/update {site_id, round_id, delta_W}
+    SRV ->> DB: INSERT INTO model_updates
+    SRV -->> S1: {status:"accepted"}
+
+    Note over S2,TR: Site 2 trains in parallel (same steps)
+    S2 ->> SRV: POST /federation/update {site_id:site_2, ...}
+    SRV ->> SRV: n_updates >= min_sites_per_round → trigger aggregation
+
+    Note over SRV,AGG: Aggregation (server-side)
+    SRV ->> AGG: aggregate(updates, current_global, round_id)
+    AGG ->> AGG: FedProx weighted average<br/>W_new = Σ(n_i/N)×(W_current + ΔW_i)
+    AGG ->> AGG: average local metrics
+    AGG -->> SRV: GlobalModel {version:2, weights:{...}}
+    SRV ->> DB: UPDATE rounds SET status=complete, model_version=2
+    SRV ->> SRV: _current_global = new weights
+
+    Note over S1,S2: Next round — sites download new global model
+    S1 ->> SRV: GET /models/global-model
+    SRV -->> S1: GlobalModel version 2
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════ SERVER INTERNAL ═══ -->
+<section id="server-internal" class="tab-content">
+  <div class="intro">
+    <h2>Server Internal Architecture</h2>
+    <p>All classes and functions in the server package and how they call each other.
+       FastAPI routes each HTTP request through the dependency injection chain to the right handler.</p>
+  </div>
+
+  <h3 class="section-title">Class & Function Interaction</h3>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+graph LR
+    subgraph ENTRY["Entry Point"]
+        MAIN["server/main.py\napp = FastAPI()\nuvicorn.run()"]
+        CFG["server/config.py\nServerSettings\nget_settings()"]
+    end
+
+    subgraph MIDDLEWARE["Middleware"]
+        CORS["CORSMiddleware\n(dynamic: wildcard or explicit origins)"]
+    end
+
+    subgraph API["API Layer  (server/api/)"]
+        AUTH_EP["auth.py\nPOST /auth/token\nPOST /auth/refresh\nPOST /auth/revoke\nget_current_site() → Depends"]
+        FED_EP["federation.py\nPOST /round/start\nPOST /update\nGET /round/{id}\nGET /sites"]
+        MDL_EP["models.py\nGET /models/global-model"]
+        HLT_EP["health.py\nGET /health/\nGET /health/metrics"]
+    end
+
+    subgraph CORE["Core  (server/core/)"]
+        RM["RoundManager\nstart_new_round()\nreceive_update()\n_aggregate()\n_timeout_guard()\nget_round()\nget_site_statuses()\ncurrent_global_weights"]
+        AGG["FedProxAggregator\naggregate(updates, W_current,\n  round_id, version)\n→ GlobalModel"]
+        REG["ModelRegistry\nregister(GlobalModel)\nlatest() → ModelRecord\nhistory() → List[ModelRecord]"]
+    end
+
+    subgraph DB["Database  (server/db/)"]
+        DATABASE["database.py\ncreate_async_engine()\nAsyncSessionLocal\nBase\nget_db() → AsyncSession"]
+        MODELS_DB["models.py\nSiteRegistry\nRoundRecord\nModelUpdateRecord\nRevokedToken"]
+    end
+
+    subgraph CRYPTO_SRV["Crypto (via shared)"]
+        JWT["python-jose\njwt.encode() / jwt.decode()"]
+        BCRYPT["passlib.CryptContext\npwd_context.verify()"]
+    end
+
+    MAIN --> CORS
+    MAIN --> AUTH_EP
+    MAIN --> FED_EP
+    MAIN --> MDL_EP
+    MAIN --> HLT_EP
+    MAIN --> CFG
+
+    AUTH_EP --> JWT
+    AUTH_EP --> BCRYPT
+    AUTH_EP --> DATABASE
+    AUTH_EP --> MODELS_DB
+
+    FED_EP --> RM
+    MDL_EP --> RM
+    FED_EP --> AUTH_EP
+
+    RM --> AGG
+    RM --> REG
+    RM --> CFG
+
+    DATABASE --> MODELS_DB
+
+    style ENTRY   fill:#1a2020,stroke:#4db6ac,color:#ccc
+    style MIDDLEWARE fill:#1a1a2a,stroke:#7c6af7,color:#ccc
+    style API     fill:#1a2020,stroke:#4db6ac,color:#ccc
+    style CORE    fill:#1a2040,stroke:#7c6af7,color:#ccc
+    style DB      fill:#2a1a00,stroke:#f9a825,color:#ccc
+    style CRYPTO_SRV fill:#2a001a,stroke:#f48fb1,color:#ccc
+    </div>
+  </div>
+
+  <h3 class="section-title">Request Lifecycle for POST /federation/update</h3>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+flowchart LR
+    REQ["HTTP POST\n/federation/update\nAuthorization: Bearer &lt;token&gt;\nBody: ModelUpdate JSON"]
+    MW["CORSMiddleware\nadd CORS headers"]
+    BEARER["HTTPBearer()\nextract token string"]
+    GCS["get_current_site()\njwt.decode() → site_id\nor raise 401"]
+    GRM["get_round_manager()\nreturn singleton"]
+    GDBS["get_db()\nAsyncSession"]
+    EP["receive_update()\ncheck site_id mismatch → 403\nawait rm.receive_update(update)"]
+    RM_RU["RoundManager.receive_update()\nbuffer update\ncheck quorum"]
+    AGG2["_aggregate()\nif quorum reached"]
+    RESP["200 {status:accepted}"]
+
+    REQ --> MW --> BEARER --> GCS --> GRM --> GDBS --> EP --> RM_RU --> AGG2 --> RESP
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════ CLIENT INTERNAL ═══ -->
+<section id="client-internal" class="tab-content">
+  <div class="intro">
+    <h2>Client Internal Architecture</h2>
+    <p>All classes and functions in the client package. The client has three concurrent execution contexts:
+       the Flet UI thread (main), the heartbeat thread, and the scheduler thread.</p>
+  </div>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+graph TB
+    subgraph ENTRY_C["Entry Point  (client/main.py)"]
+        CMAIN["if __name__ == '__main__'\nconfigure_logging()\nthreading.Thread(_background).start()\nft.app(flet_main, port=8551)"]
+    end
+
+    subgraph BG["Background Thread  (_background)"]
+        HB_START["start_heartbeat()\n→ Thread(target=_beat, daemon=True)"]
+        SC_START["start_scheduler()\n→ Thread(target=_watch, daemon=True)"]
+    end
+
+    subgraph HEARTBEAT["Heartbeat Thread  (client/comms/heartbeat.py)"]
+        BEAT["_beat()\nhttpx.Client(verify_ssl, connect_timeout)\nloop: GET /health/ every 30s\nlog.debug / log.warning"]
+    end
+
+    subgraph SCHEDULER["Scheduler Thread  (client/engine/scheduler.py)"]
+        WATCH["_watch()\nfl.authenticate()\nloop every 15s:\n  GET /federation/round/{n}\n  if collecting → train + upload"]
+        LT["LocalTrainer.train_and_prepare_update(rid)\n→ ModelUpdate"]
+        FLC_UP["FLClient.upload_update(update)\nPOST /federation/update"]
+    end
+
+    subgraph ENGINE["Engine  (client/engine/)"]
+        DL["data_loader.py\nload_filtration_csv(path)\n→ (time, flux, tmp) arrays"]
+        LTR["local_trainer.py\nLocalTrainer\n  train_and_prepare_update()\n  fit_all_models() → HermiaResult\n  compute_flux_ratio()\n  compute_amin()\n  add_gaussian_noise()"]
+    end
+
+    subgraph COMMS["Comms  (client/comms/)"]
+        FLC["fl_client.py\nFLClient\n  authenticate() → tokens\n  _request() + retry backoff\n  upload_update(ModelUpdate)\n  get_global_model()\n  _do_refresh()"]
+        HBMOD["heartbeat.py\nstart_heartbeat()\n_beat() thread"]
+    end
+
+    subgraph CCFG["Config  (client/config.py)"]
+        CS["ClientSettings\nsite_id · server_url · site_secret\ndp_noise_sigma · local_data_path\nverify_ssl · retry_attempts\nget_client_settings() @lru_cache"]
+    end
+
+    CMAIN --> BG
+    BG --> HB_START
+    BG --> SC_START
+    HB_START --> BEAT
+    SC_START --> WATCH
+    WATCH --> LT --> LTR --> DL
+    WATCH --> FLC_UP --> FLC
+    LTR --> FLC
+
+    ENGINE --> COMMS
+    ENGINE --> CCFG
+    COMMS --> CCFG
+
+    style ENTRY_C   fill:#1a2020,stroke:#4db6ac,color:#ccc
+    style BG        fill:#1a1a30,stroke:#7c6af7,color:#ccc
+    style HEARTBEAT fill:#2a1a00,stroke:#f9a825,color:#ccc
+    style SCHEDULER fill:#1a2a1a,stroke:#4db6ac,color:#ccc
+    style ENGINE    fill:#2a2000,stroke:#f9a825,color:#ccc
+    style COMMS     fill:#001a2a,stroke:#4db6ac,color:#ccc
+    style CCFG      fill:#1a001a,stroke:#f48fb1,color:#ccc
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════ SHARED MODELS ═══ -->
+<section id="shared-models" class="tab-content">
+  <div class="intro">
+    <h2>Shared Physics Models</h2>
+    <p>The shared/ library contains all physics equations, schemas, and utilities.
+       Both the server and all client containers import from this package — it is the common scientific core.</p>
+  </div>
+
+  <h3 class="section-title">Models Layer</h3>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+graph TB
+    subgraph PINN_MOD["shared/models/pinn.py — FiltrationPINN"]
+        PP["ParameterPredictor\nnn.Module\n11 features → 128 → 128 → 64 → 10 params\nSoftplus (positive params)\nSigmoid (Pc ∈ [0,1])"]
+        PS["PhysicsSolver\nnn.Module  (NO weights)\nCombined-1A: J(t)=J0/(1+k1·t)²·exp(-k2·t)\nManabe LRV: log10(1/(1-Pc))\ntorch.clamp for stability"]
+        CLS["BlockingRegimeClassifier\nnn.Module\n11 → 64 → 5 logits\ncross-entropy loss"]
+        FPINN["FiltrationPINN\nforward(x, time)\n→ {J_t, LRV, params, regime_logits}"]
+        LOSS["filtration_loss()\nL_flux   MSE(J_pred, J_obs)\nL_LRV    MSE(LRV_pred, LRV_obs)\nL_physics constraint penalties\nL_regime cross-entropy\nL_fedprox (μ/2)‖W_local-W_global‖²"]
+        PP --> FPINN
+        PS --> FPINN
+        CLS --> FPINN
+        FPINN --> LOSS
+    end
+
+    subgraph HERMIA["shared/models/hermia.py — Hermia Models"]
+        H1["fit_standard_blocking()\nJ=J0/(1+ks·t)²"]
+        H2["fit_complete_blocking()\nJ=J0·exp(-kc·t)"]
+        H3["fit_intermediate_blocking()\nJ=J0/(1+J0·ki·t)"]
+        H4["fit_cake_filtration()\nJ=J0/sqrt(1+J0²·kcf·t)"]
+        H5["fit_combined_1a()\nJ=J0/(1+k1·t)²·exp(-k2·t)"]
+        FAM["fit_all_models(time, flux)\n→ Dict[str, HermiaResult]\n  .selected=True for lowest AIC"]
+        AIC_F["_aic(n, k, rss)\n_bic(n, k, rss)\n_rmse(y_true, y_pred)"]
+        CFR["compute_flux_ratio(flux)\nJ_final / J_initial"]
+        CAMIN["compute_amin(V, J_avg, t)\nA_min = V / (J·t)"]
+        H1 & H2 & H3 & H4 & H5 --> FAM
+        AIC_F --> FAM
+    end
+
+    subgraph OTHER_MODS["Other Shared Models"]
+        MANABE["shared/models/manabe.py\nmanabe_lrv(Pc, n_layers)\nfit_manabe(J_obs, LRV_obs)\nManabeResult"]
+        POL["shared/models/polarization.py\nconcentration_at_wall()\npermeate_concentration()\ncompute_polarization()\nPolarizationResult"]
+        C1A["shared/models/combined_1a.py\ncombined_1a_flux(t, J0, k1, k2)\nfit_combined_1a(time, flux)"]
+    end
+
+    subgraph SHARED_OTHER["Shared Utilities & Schemas"]
+        NOISE["shared/crypto/noise.py\nadd_gaussian_noise(delta_W, sigma)\nclip_gradients(delta_W, clip_norm)"]
+        SECAGG["shared/crypto/secure_agg.py\nsplit_into_shares() [stub]\nreconstruct_from_shares() [stub]"]
+        CONSTS["shared/utils/constants.py\nJ_MIN/J_MAX · LRV_MIN\nPARAM_IDX · N_PARAMS\nphysical bounds dicts"]
+        LOGCFG["shared/utils/logging_config.py\nconfigure_logging()\nget_logger(__name__)\nstructlog JSON pipeline"]
+        SCH_AUTH["shared/schemas/auth.py\nTokenRequest\nTokenResponse\nRefreshRequest"]
+        SCH_FED["shared/schemas/federation.py\nModelUpdate\nGlobalModel\nFederationRound\nRoundStatus · SiteStatus"]
+        SCH_FILT["shared/schemas/filtration.py\nFilterDescriptor\nProcessConditions\nFiltrationRunData  (local only)\nFiltrationResult"]
+    end
+
+    PINN_MOD -->|uses| CONSTS
+    HERMIA  -->|uses| CONSTS
+    OTHER_MODS -->|uses| CONSTS
+    NOISE -->|used by| HERMIA
+
+    style PINN_MOD fill:#1a2040,stroke:#7c6af7,color:#ccc
+    style HERMIA   fill:#1a3020,stroke:#4db6ac,color:#ccc
+    style OTHER_MODS fill:#2a1a30,stroke:#f48fb1,color:#ccc
+    style SHARED_OTHER fill:#2a2000,stroke:#f9a825,color:#ccc
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════ AUTH FLOW ═══ -->
+<section id="auth-flow" class="tab-content">
+  <div class="intro">
+    <h2>Authentication & Token Flow</h2>
+    <p>Complete lifecycle of JWT tokens — from initial credential exchange through token rotation and revocation.
+       All manufacturing sites follow this same flow independently.</p>
+  </div>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+sequenceDiagram
+    participant SITE as Manufacturing Site<br/>(FLClient)
+    participant AUTH as /auth endpoints<br/>(server/api/auth.py)
+    participant DB as site_registry &<br/>revoked_tokens tables
+    participant RM as Protected Routes<br/>(federation, models)
+
+    Note over SITE,DB: ① Initial Authentication (once per session)
+    SITE ->> AUTH: POST /auth/token<br/>{site_id:"site_1", site_secret:"secret"}
+    AUTH ->> DB: SELECT * FROM site_registry WHERE site_id="site_1"
+    DB -->> AUTH: row {secret_hash:"$2b$12$..."}
+    AUTH ->> AUTH: bcrypt.verify(secret, hash) → True
+    AUTH ->> AUTH: _make_token("site_1","client",15min) → access_token + jti_A
+    AUTH ->> AUTH: _make_token("site_1","client",7days) → refresh_token + jti_R
+    AUTH -->> SITE: {access_token, refresh_token}
+
+    Note over SITE,RM: ② Using the access token (valid for 15 minutes)
+    SITE ->> RM: POST /federation/update<br/>Authorization: Bearer &lt;access_token&gt;
+    RM ->> RM: jwt.decode(token, secret_key)<br/>→ {sub:"site_1", exp:...}
+    RM ->> RM: exp > now → valid ✓
+    RM -->> SITE: 200 {status:"accepted"}
+
+    Note over SITE,DB: ③ Token rotation (access token expires after 15 min)
+    SITE ->> AUTH: POST /auth/refresh {refresh_token}
+    AUTH ->> AUTH: jwt.decode(refresh_token) → {jti:"jti_R", sub:"site_1"}
+    AUTH ->> DB: SELECT * FROM revoked_tokens WHERE jti="jti_R"
+    DB -->> AUTH: NULL (not revoked yet)
+    AUTH ->> DB: INSERT INTO revoked_tokens (jti="jti_R") ← consume old token
+    AUTH ->> AUTH: _make_token(...) → new access_token + new refresh_token
+    AUTH -->> SITE: {new_access_token, new_refresh_token}
+
+    Note over SITE,DB: ④ Explicit logout / revocation
+    SITE ->> AUTH: POST /auth/revoke {refresh_token}
+    AUTH ->> DB: INSERT INTO revoked_tokens (jti=...) if not exists
+    AUTH -->> SITE: {status:"revoked"}
+
+    Note over SITE,RM: ⑤ Attempted replay of revoked token → 401
+    SITE ->> AUTH: POST /auth/refresh {old_refresh_token}
+    AUTH ->> DB: SELECT * FROM revoked_tokens WHERE jti="jti_R"
+    DB -->> AUTH: row found!
+    AUTH -->> SITE: 401 Unauthorized {"detail":"Token revoked"}
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════════════════════════ DOCKER NETWORK ═══ -->
+<section id="docker-network" class="tab-content">
+  <div class="intro">
+    <h2>Docker Network Isolation</h2>
+    <p>Network topology in the Docker Compose deployment. Each site is isolated on its own bridge network.
+       Sites cannot communicate with each other or with the database directly —
+       they can only reach the server through their shared network segment.</p>
+    <ul>
+      <li><strong>db_net</strong>: server ↔ PostgreSQL only</li>
+      <li><strong>site_N_net</strong>: server ↔ site_N only (one per site)</li>
+      <li>Sites cannot reach each other (mirrors production topology)</li>
+    </ul>
+  </div>
+  <div class="diagram-wrap">
+    <div class="mermaid">
+graph TB
+    subgraph DOCKER_HOST["Docker Host"]
+        subgraph DB_NET["🔒  db_net  (bridge)"]
+            POSTGRES["postgres:5432\nPostgreSQL DB"]
+            SRV_DB2["server — db_net interface"]
+        end
+
+        subgraph S1_NET["🔒  site_1_net  (bridge)"]
+            SRV_S1["server — site_1 interface"]
+            SITE1["site_1\n:8551"]
+        end
+
+        subgraph S2_NET["🔒  site_2_net  (bridge)"]
+            SRV_S2["server — site_2 interface"]
+            SITE2["site_2\n:8552"]
+        end
+
+        subgraph S3_NET["🔒  site_3_net  (bridge)"]
+            SRV_S3["server — site_3 interface"]
+            SITE3["site_3\n:8553"]
+        end
+
+        subgraph S4_NET["🔒  site_4_net  (bridge)"]
+            SRV_S4["server — site_4 interface"]
+            SITE4["site_4\n:8554"]
+        end
+
+        subgraph S5_NET["🔒  site_5_net  (bridge)"]
+            SRV_S5["server — site_5 interface"]
+            SITE5["site_5\n:8555"]
+        end
+
+        SERVER_CORE["⚡ FL Server\n:8000 (API)\n:8550 (Flet UI)"]
+
+        SRV_DB2 <--> POSTGRES
+        SRV_DB2 <--> SERVER_CORE
+        SRV_S1 <--> SERVER_CORE
+        SRV_S2 <--> SERVER_CORE
+        SRV_S3 <--> SERVER_CORE
+        SRV_S4 <--> SERVER_CORE
+        SRV_S5 <--> SERVER_CORE
+
+        SRV_S1 <--> SITE1
+        SRV_S2 <--> SITE2
+        SRV_S3 <--> SITE3
+        SRV_S4 <--> SITE4
+        SRV_S5 <--> SITE5
+    end
+
+    HOST_BROWSER["👤  Host Browser\nlocalhost:8000 / :8550-8555"]
+    HOST_BROWSER -->|port-forwarded| SERVER_CORE
+    HOST_BROWSER -->|port-forwarded| SITE1
+    HOST_BROWSER -->|port-forwarded| SITE2
+    HOST_BROWSER -->|port-forwarded| SITE3
+    HOST_BROWSER -->|port-forwarded| SITE4
+    HOST_BROWSER -->|port-forwarded| SITE5
+
+    Note1["❌ SITE1 cannot reach SITE2, SITE3, SITE4, SITE5, or POSTGRES\n(not on the same network)"]
+
+    style DB_NET  fill:#2a1a00,stroke:#f9a825,color:#ccc
+    style S1_NET  fill:#001a2a,stroke:#4db6ac,color:#ccc
+    style S2_NET  fill:#001a2a,stroke:#4db6ac,color:#ccc
+    style S3_NET  fill:#001a2a,stroke:#4db6ac,color:#ccc
+    style S4_NET  fill:#001a2a,stroke:#4db6ac,color:#ccc
+    style S5_NET  fill:#001a2a,stroke:#4db6ac,color:#ccc
+    style Note1   fill:#2a0010,stroke:#f48fb1,color:#f48fb1
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    securityLevel: 'loose',
+    flowchart: { useMaxWidth: false, htmlLabels: true, curve: 'basis' },
+    sequence: { useMaxWidth: false, showSequenceNumbers: true },
+    themeVariables: {
+      primaryColor: '#e3f2fd',
+      primaryBorderColor: '#1976d2',
+      secondaryColor: '#f3e5f5',
+      tertiaryColor: '#e8f5e9',
+      fontFamily: 'Segoe UI, system-ui, sans-serif',
+    }
+  });
+
+  function show(id) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('nav button').forEach(el => el.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    event.target.classList.add('active');
+  }
+</script>
+</body>
+</html>
