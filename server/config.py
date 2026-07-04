@@ -10,6 +10,14 @@ class ServerSettings(BaseSettings):
     db_url: str = "sqlite+aiosqlite:///./viral_fl.db"
     host: str = "0.0.0.0"
     port: int = 8000
+    cors_origins: list[str] = [
+        "http://localhost:8550",
+        "http://localhost:8551",
+        "http://localhost:8552",
+        "http://localhost:8553",
+        "http://localhost:8554",
+        "http://localhost:8555",
+    ]
     flet_port: int = 8550
     log_level: str = "INFO"
     fl_rounds: int = 50

@@ -1,18 +1,18 @@
 """Global model REST endpoints."""
-from fastapi import APIRouter
-from shared.schemas.federation import GlobalModel
+from fastapi import APIRouter, Depends
+
+from server.api.auth import get_current_site
+from server.core.round_manager import RoundManager, get_round_manager
 
 router = APIRouter()
-_global_model: dict = {}
 
 
 @router.get("/global-model")
-async def get_global_model() -> dict:
-    return _global_model or {"message": "No global model available yet"}
-
-
-@router.post("/global-model")
-async def set_global_model(model: GlobalModel) -> dict:
-    global _global_model
-    _global_model = model.model_dump()
-    return {"status": "updated", "version": model.version}
+async def get_global_model(
+    rm: RoundManager = Depends(get_round_manager),
+    _site: str = Depends(get_current_site),
+) -> dict:
+    weights = rm.current_global_weights
+    if not weights:
+        return {"message": "No global model available yet"}
+    return weights
