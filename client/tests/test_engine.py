@@ -160,6 +160,45 @@ class TestLocalTrainer:
 
         assert update.hermia_best_model == "standard"
 
+    def test_empty_hermia_results_raises_index_error(self, tmp_path) -> None:
+        """fit_all_models returning {} → list({})[0] raises IndexError (documented behavior)."""
+        csv_path = self._build_csv(tmp_path)
+        with patch("client.engine.local_trainer.get_client_settings",
+                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+             patch("client.engine.local_trainer.fit_all_models", return_value={}), \
+             patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
+             patch("client.engine.local_trainer.compute_amin", return_value=0.05), \
+             patch("client.engine.local_trainer.add_gaussian_noise",
+                   side_effect=lambda w, sigma: w):
+            from client.engine.local_trainer import LocalTrainer
+            with pytest.raises(IndexError):
+                LocalTrainer().train_and_prepare_update(round_id=1)
+
+    def test_all_five_local_metric_keys_present(self, tmp_path) -> None:
+        csv_path = self._build_csv(tmp_path)
+        mock_result = _make_hermia_result(selected=True)
+        mock_result.aic = -60.0
+        mock_result.bic = -55.0
+
+        with patch("client.engine.local_trainer.get_client_settings",
+                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+             patch("client.engine.local_trainer.fit_all_models",
+                   return_value={"combined_1a": mock_result}), \
+             patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.75), \
+             patch("client.engine.local_trainer.compute_amin", return_value=0.1), \
+             patch("client.engine.local_trainer.add_gaussian_noise",
+                   side_effect=lambda w, sigma: w):
+            from client.engine.local_trainer import LocalTrainer
+            update = LocalTrainer().train_and_prepare_update(round_id=1)
+
+        assert "flux_rmse" in update.local_metrics
+        assert "flux_ratio" in update.local_metrics
+        assert "amin_m2" in update.local_metrics
+        assert "best_aic" in update.local_metrics
+        assert "best_bic" in update.local_metrics
+        assert update.local_metrics["best_aic"] == pytest.approx(-60.0)
+        assert update.local_metrics["best_bic"] == pytest.approx(-55.0)
+
     def test_dp_noise_applied(self, tmp_path) -> None:
         csv_path = self._build_csv(tmp_path)
         mock_result = _make_hermia_result(selected=True)
@@ -277,6 +316,34 @@ class TestWatch:
                 _watch()
 
         mock_trainer.train_and_prepare_update.assert_not_called()
+
+    def test_second_poll_same_round_no_retraining(self) -> None:
+        """After training round 1, a second poll returning round_id=1 must not retrain."""
+        fl = self._mock_fl()
+        mock_trainer = MagicMock()
+        mock_trainer.train_and_prepare_update.return_value = MagicMock()
+        # First poll: collecting → trains. Second poll: same round_id → skip.
+        poll_resp_collecting = self._mock_resp(data={"round_id": 1, "status": "collecting"})
+        sleep_calls = {"count": 0}
+
+        def sleep_side_effect(t):
+            sleep_calls["count"] += 1
+            if sleep_calls["count"] >= 2:
+                raise SystemExit(0)
+
+        with patch("client.engine.scheduler.get_client_settings",
+                   return_value=_mock_client_settings()), \
+             patch("client.engine.scheduler.FLClient", return_value=fl), \
+             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
+             patch("client.engine.scheduler.httpx.get",
+                   return_value=poll_resp_collecting), \
+             patch("client.engine.scheduler.time.sleep",
+                   side_effect=sleep_side_effect):
+            with pytest.raises(SystemExit):
+                _watch()
+
+        # Trained exactly once despite two polls returning round_id=1
+        assert mock_trainer.train_and_prepare_update.call_count == 1
 
     def test_exception_in_loop_caught_warning_logged(self) -> None:
         """Network error inside loop is caught; loop continues until sleep exits."""

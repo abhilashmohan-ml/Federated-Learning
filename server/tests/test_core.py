@@ -91,15 +91,20 @@ class TestFedProxAggregatorBasic:
         assert gm.weights["p"][0] == pytest.approx(8.0)
 
     def test_missing_layer_in_second_update_skipped(self) -> None:
-        """If a later update lacks a layer present in update[0], that update is skipped."""
+        """Layer absent from one update is skipped for that update only."""
         agg = FedProxAggregator()
         updates = [
-            _make_update("site_1", layers={"a": [5.0], "b": [3.0]}),
-            _make_update("site_2", layers={"a": [1.0]}),  # no "b"
+            _make_update("site_1", n_samples=100, layers={"a": [5.0], "b": [3.0]}),
+            _make_update("site_2", n_samples=100, layers={"a": [1.0]}),  # no "b"
         ]
         gm = agg.aggregate(updates, {"a": [0.0], "b": [0.0]}, round_id=1, model_version=0)
+        # Both layers present
         assert "a" in gm.weights
         assert "b" in gm.weights
+        # "a": both sites → 0.5*(0+5) + 0.5*(0+1) = 3.0
+        assert gm.weights["a"][0] == pytest.approx(3.0)
+        # "b": site_2 skipped (no "b" in delta) → 0.5*(0+3) = 1.5
+        assert gm.weights["b"][0] == pytest.approx(1.5)
 
     def test_layer_absent_in_global_defaults_zeros(self) -> None:
         """Layer not in current_global defaults to zero-vector as base."""
