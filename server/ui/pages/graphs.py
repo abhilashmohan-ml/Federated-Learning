@@ -19,9 +19,9 @@ class GraphsPage:
             LRVChart(multi_site=True).build(),
             ft.Divider(),
             ft.Text("Amin vs Throughput  (populate after first complete round)",
-                    size=14, color=ft.colors.GREY_500),
+                    size=14, color=ft.Colors.GREY_500),
             ft.Divider(),
             ft.Text("Hermia Model Consensus",  size=17),
             ft.Text("(bar chart showing most-selected blocking model per site — populate after round 1)",
-                    size=12, color=ft.colors.GREY_500),
+                    size=12, color=ft.Colors.GREY_500),
         ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16, padding=24)

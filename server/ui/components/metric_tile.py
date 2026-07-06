@@ -12,9 +12,9 @@ class MetricTile:
         return ft.Card(
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text(self.label, size=11, color=ft.colors.GREY_400),
+                    ft.Text(self.label, size=11, color=ft.Colors.GREY_400),
                     ft.Text(self.value, size=22, weight=ft.FontWeight.BOLD),
-                    ft.Text(self.unit,  size=10, color=ft.colors.GREY_600),
+                    ft.Text(self.unit,  size=10, color=ft.Colors.GREY_600),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
                 padding=14, width=135,
                 alignment=ft.alignment.center,

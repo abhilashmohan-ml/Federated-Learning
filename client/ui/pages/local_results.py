@@ -14,7 +14,7 @@ class LocalResultsPage:
                     ft.LineChartDataPoint(x=t, y=100 * math.exp(-0.022 * t))
                     for t in range(0, 61, 2)
                 ],
-                stroke_width=2, color=ft.colors.CYAN, curved=True,
+                stroke_width=2, color=ft.Colors.CYAN, curved=True,
             )],
             left_axis=ft.ChartAxis(title=ft.Text("Flux (LMH)"), title_size=13),
             bottom_axis=ft.ChartAxis(title=ft.Text("Time (min)"), title_size=13),
@@ -23,25 +23,25 @@ class LocalResultsPage:
 
         metrics = ft.Row([
             ft.Card(content=ft.Container(ft.Column([
-                ft.Text("LRV",  size=11, color=ft.colors.GREY_500),
+                ft.Text("LRV",  size=11, color=ft.Colors.GREY_500),
                 ft.Text("—",    size=22, weight=ft.FontWeight.BOLD),
             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             padding=14, width=110, alignment=ft.alignment.center)),
 
             ft.Card(content=ft.Container(ft.Column([
-                ft.Text("Amin (m2)", size=11, color=ft.colors.GREY_500),
+                ft.Text("Amin (m2)", size=11, color=ft.Colors.GREY_500),
                 ft.Text("—",        size=22, weight=ft.FontWeight.BOLD),
             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             padding=14, width=120, alignment=ft.alignment.center)),
 
             ft.Card(content=ft.Container(ft.Column([
-                ft.Text("Flux Ratio",  size=11, color=ft.colors.GREY_500),
+                ft.Text("Flux Ratio",  size=11, color=ft.Colors.GREY_500),
                 ft.Text("—",           size=22, weight=ft.FontWeight.BOLD),
             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             padding=14, width=120, alignment=ft.alignment.center)),
 
             ft.Card(content=ft.Container(ft.Column([
-                ft.Text("Best Model", size=11, color=ft.colors.GREY_500),
+                ft.Text("Best Model", size=11, color=ft.Colors.GREY_500),
                 ft.Text("—",          size=16, weight=ft.FontWeight.BOLD),
             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             padding=14, width=140, alignment=ft.alignment.center)),

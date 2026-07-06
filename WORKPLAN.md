@@ -65,6 +65,11 @@
   - [ ] scripts/run_simulation.py
   - [ ] scripts/visualise_results.py
 
+## Bug Fixes
+  - [x] fix(ui): migrate all Flet UI from deprecated `ft.colors.*`/`ft.icons.*` to
+         `ft.Colors.*`/`ft.Icons.*` required by Flet 0.85.3 — affects 11 files across
+         server/ui/ and client/ui/
+
 ## Phase 9: Validation & Hardening  (Weeks 11-12)
   - [ ] Validate global model vs centralised baseline
   - [ ] Audit logging for every round

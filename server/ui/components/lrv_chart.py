@@ -13,7 +13,7 @@ class LRVChart:
         bar_groups = [
             ft.BarChartGroup(
                 x=i,
-                bar_rods=[ft.BarChartRod(from_y=0, to_y=lrvs[i], width=28, color=ft.colors.TEAL)],
+                bar_rods=[ft.BarChartRod(from_y=0, to_y=lrvs[i], width=28, color=ft.Colors.TEAL)],
             )
             for i in range(5)
         ]
@@ -34,5 +34,5 @@ class LRVChart:
                 interactive=True,
             ),
             ft.Text("Dashed line at LRV=4.0 represents regulatory minimum",
-                    size=10, color=ft.colors.GREY_500),
+                    size=10, color=ft.Colors.GREY_500),
         ])

@@ -18,7 +18,7 @@ class SettingsPage:
                 ft.TextField(label="DP Noise Sigma",  value="0.01", width=180),
                 ft.TextField(label="Min Sites/Round", value="3",    width=180),
             ], spacing=12, wrap=True),
-            ft.ElevatedButton("Save Hyperparameters", icon=ft.icons.SAVE),
+            ft.ElevatedButton("Save Hyperparameters", icon=ft.Icons.SAVE),
             ft.Divider(),
             ft.Text("Registered Sites", size=17),
             ft.DataTable(
@@ -33,8 +33,8 @@ class SettingsPage:
                         ft.DataCell(ft.Text(f"site_{i}")),
                         ft.DataCell(ft.Text("IDLE")),
                         ft.DataCell(ft.Text("—")),
-                        ft.DataCell(ft.IconButton(ft.icons.DELETE_OUTLINE,
-                                                  icon_color=ft.colors.RED_300)),
+                        ft.DataCell(ft.IconButton(ft.Icons.DELETE_OUTLINE,
+                                                  icon_color=ft.Colors.RED_300)),
                     ])
                     for i in range(1, 6)
                 ],

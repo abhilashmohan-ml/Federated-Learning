@@ -14,7 +14,7 @@ class RoundTimeline:
         status_chips = ft.Row([
             ft.Chip(
                 label=ft.Text(f"{sid}: {st}", size=11),
-                bgcolor=ft.colors.BLUE if st == "DONE" else ft.colors.GREY_800,
+                bgcolor=ft.Colors.BLUE if st == "DONE" else ft.Colors.GREY_800,
             )
             for sid, st in self.site_statuses.items()
         ], spacing=8, wrap=True)
@@ -24,8 +24,8 @@ class RoundTimeline:
                 ft.Text(f"Round {self.current_round} / {self.total_rounds}",
                         size=14, weight=ft.FontWeight.BOLD),
                 ft.Text(f"{progress*100:.0f}% complete",
-                        size=12, color=ft.colors.GREY_400),
+                        size=12, color=ft.Colors.GREY_400),
             ], spacing=16),
-            ft.ProgressBar(value=progress, color=ft.colors.BLUE, height=10),
+            ft.ProgressBar(value=progress, color=ft.Colors.BLUE, height=10),
             status_chips,
         ], spacing=8)

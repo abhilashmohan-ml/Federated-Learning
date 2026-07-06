@@ -3,8 +3,8 @@ import math
 import flet as ft
 
 SITE_COLORS = [
-    ft.colors.BLUE, ft.colors.GREEN, ft.colors.ORANGE,
-    ft.colors.PINK, ft.colors.PURPLE,
+    ft.Colors.BLUE, ft.Colors.GREEN, ft.Colors.ORANGE,
+    ft.Colors.PINK, ft.Colors.PURPLE,
 ]
 
 
@@ -35,7 +35,7 @@ class FluxChart:
                         for t in range(0, 61, 2)
                     ],
                     stroke_width=2,
-                    color=ft.colors.CYAN,
+                    color=ft.Colors.CYAN,
                     curved=True,
                 )
             ]
