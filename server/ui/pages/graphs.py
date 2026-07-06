@@ -24,4 +24,4 @@ class GraphsPage:
             ft.Text("Hermia Model Consensus",  size=17),
             ft.Text("(bar chart showing most-selected blocking model per site — populate after round 1)",
                     size=12, color=ft.Colors.GREY_500),
-        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16, padding=24)
+        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16)

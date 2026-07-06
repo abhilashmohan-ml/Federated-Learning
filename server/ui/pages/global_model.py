@@ -62,4 +62,4 @@ class GlobalModelPage:
             ], spacing=12),
             ft.Text("Current Global Parameters", size=17),
             table,
-        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16, padding=24)
+        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16)

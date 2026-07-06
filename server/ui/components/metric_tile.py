@@ -17,6 +17,6 @@ class MetricTile:
                     ft.Text(self.unit,  size=10, color=ft.Colors.GREY_600),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
                 padding=14, width=135,
-                alignment=ft.alignment.center,
+                alignment=ft.Alignment(0, 0),
             )
         )

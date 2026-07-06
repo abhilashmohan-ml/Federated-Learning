@@ -1,11 +1,12 @@
 """Flux decline J(t) line chart component."""
-import math
 import flet as ft
 
 SITE_COLORS = [
     ft.Colors.BLUE, ft.Colors.GREEN, ft.Colors.ORANGE,
     ft.Colors.PINK, ft.Colors.PURPLE,
 ]
+
+_SITE_LABELS = [f"site_{i}" for i in range(1, 6)]
 
 
 class FluxChart:
@@ -14,36 +15,29 @@ class FluxChart:
 
     def build(self) -> ft.Control:
         if self.multi_site:
-            # Placeholder: one series per site
-            series = [
-                ft.LineChartData(
-                    data_points=[
-                        ft.LineChartDataPoint(x=t, y=100 * math.exp(-0.015 * (1 + i * 0.3) * t))
-                        for t in range(0, 61, 3)
-                    ],
-                    stroke_width=2,
-                    color=SITE_COLORS[i],
-                    curved=True,
-                )
+            legend = ft.Row([
+                ft.Container(width=14, height=14, bgcolor=SITE_COLORS[i],
+                             border_radius=3,
+                             content=ft.Text(""))
                 for i in range(5)
-            ]
+            ], spacing=6)
+            subtitle = ft.Text("Flux Decline — All 5 Sites  (data populates after round 1)",
+                               size=12, color=ft.Colors.GREY_400)
         else:
-            series = [
-                ft.LineChartData(
-                    data_points=[
-                        ft.LineChartDataPoint(x=t, y=100 * math.exp(-0.02 * t))
-                        for t in range(0, 61, 2)
-                    ],
-                    stroke_width=2,
-                    color=ft.Colors.CYAN,
-                    curved=True,
-                )
-            ]
+            legend = ft.Container(width=14, height=14, bgcolor=ft.Colors.CYAN,
+                                  border_radius=3, content=ft.Text(""))
+            subtitle = ft.Text("Flux Decline J(t)  (data populates after first local training)",
+                               size=12, color=ft.Colors.GREY_400)
 
-        return ft.LineChart(
-            data_series=series,
-            left_axis=ft.ChartAxis(title=ft.Text("Flux (LMH)"), title_size=13),
-            bottom_axis=ft.ChartAxis(title=ft.Text("Time (min)"), title_size=13),
+        return ft.Container(
+            content=ft.Column([
+                ft.Text("Flux (LMH) vs Time (min)", size=13, weight=ft.FontWeight.BOLD),
+                subtitle,
+                legend,
+            ], spacing=8),
             height=270,
             expand=True,
+            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.BLUE),
+            border_radius=8,
+            padding=16,
         )

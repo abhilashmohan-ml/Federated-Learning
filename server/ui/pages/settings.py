@@ -39,4 +39,4 @@ class SettingsPage:
                     for i in range(1, 6)
                 ],
             ),
-        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16, padding=24)
+        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16)
