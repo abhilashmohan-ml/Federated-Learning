@@ -64,7 +64,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt                  # python-jose: JWT encode/decode
-from passlib.context import CryptContext        # bcrypt password hashing
+import bcrypt as _bcrypt                         # bcrypt password hashing
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,10 +75,8 @@ from shared.schemas.auth import RefreshRequest, TokenRequest, TokenResponse
 
 router = APIRouter()
 
-# CryptContext wraps bcrypt — a deliberately slow hashing algorithm.
-# `deprecated="auto"` lets passlib automatically upgrade legacy hashes if needed.
-# NEVER use MD5 or SHA1 for passwords; bcrypt is the right choice.
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def _verify_secret(plaintext: str, hashed: str) -> bool:
+    return _bcrypt.checkpw(plaintext.encode(), hashed.encode())
 
 ALGORITHM = "HS256"   # HMAC with SHA-256 — the standard for JWT signing
 
@@ -206,7 +204,7 @@ async def issue_token(
 
     # Timing-safe check: verify even if site is None (to prevent timing attacks
     # that reveal whether a site_id exists by measuring response time)
-    if site is None or not pwd_context.verify(req.site_secret, site.secret_hash):
+    if site is None or not _verify_secret(req.site_secret, site.secret_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad credentials"
         )

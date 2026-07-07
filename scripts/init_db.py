@@ -12,13 +12,16 @@ import asyncio
 import os
 import secrets
 
-from passlib.context import CryptContext
+import bcrypt
 
 from shared.utils.logging_config import configure_logging, get_logger
 
 configure_logging()
 log = get_logger("init_db")
-_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def _hash(plaintext: str) -> str:
+    return bcrypt.hashpw(plaintext.encode(), bcrypt.gensalt()).decode()
 
 
 async def main() -> None:
@@ -52,7 +55,7 @@ async def main() -> None:
             if existing.scalar_one_or_none() is None:
                 session.add(SiteRegistry(
                     site_id=sid,
-                    secret_hash=_pwd.hash(plaintext),
+                    secret_hash=_hash(plaintext),
                 ))
             else:
                 log.info("site_already_registered", site=sid)
