@@ -103,6 +103,11 @@ class TestMain:
         _, _, _, tab_view = _run_main()
         assert len(tab_view.controls) == 2
 
+    def test_tab_bar_view_expand_true(self) -> None:
+        """Regression: TabBarView must have expand=True; unbounded height crashes Flet."""
+        _, _, _, tab_view = _run_main()
+        assert tab_view.expand is True
+
     def test_tab_bar_view_controls_are_status_and_results(self) -> None:
         page = _mock_page()
         settings = _mock_settings()

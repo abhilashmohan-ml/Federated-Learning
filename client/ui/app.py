@@ -15,7 +15,7 @@ def main(page: ft.Page) -> None:
     results_content = LocalResultsPage(page).build()
 
     tab_bar  = ft.TabBar(tabs=[ft.Tab(label="Status"), ft.Tab(label="Local Results")])
-    tab_view = ft.TabBarView(controls=[status_content, results_content])
+    tab_view = ft.TabBarView(controls=[status_content, results_content], expand=True)
 
     tabs = ft.Tabs(
         content=ft.Column([tab_bar, tab_view], expand=True),
