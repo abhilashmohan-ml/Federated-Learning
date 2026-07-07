@@ -33,7 +33,7 @@ PYTHON CONCEPT: threading.Thread
   Creates a new OS-level thread that runs `target` concurrently with the main code.
   `daemon=True` means: kill this thread if the main thread exits.
 
-PYTHON CONCEPT: ft.app()
+PYTHON CONCEPT: ft.run()
   This is a blocking call — it starts the Flet web server and enters an event
   loop that handles browser interactions. The call returns only when the Flet
   app is shut down.
@@ -79,12 +79,12 @@ if __name__ == "__main__":
     threading.Thread(target=_background, daemon=True).start()
 
     # Launch the Flet web interface.
-    # - target=flet_main: the function that builds the UI page
+    # - flet_main: the function that builds the UI page
     # - port: the HTTP port the browser connects to (8551-8555 per site)
     # - view=WEB_BROWSER: serve as a web app (not a desktop window)
     # This call BLOCKS until the Flet server shuts down.
-    ft.app(
-        target=flet_main,
+    ft.run(
+        flet_main,
         port=settings.flet_client_port,
         view=ft.AppView.WEB_BROWSER,
     )

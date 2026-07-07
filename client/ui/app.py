@@ -11,13 +11,17 @@ def main(page: ft.Page) -> None:
     page.theme_mode = ft.ThemeMode.DARK
     page.padding    = 20
 
+    status_content  = StatusPage(page).build()
+    results_content = LocalResultsPage(page).build()
+
+    tab_bar  = ft.TabBar(tabs=[ft.Tab(label="Status"), ft.Tab(label="Local Results")])
+    tab_view = ft.TabBarView(controls=[status_content, results_content])
+
     tabs = ft.Tabs(
+        content=ft.Column([tab_bar, tab_view], expand=True),
+        length=2,
         selected_index=0,
         expand=True,
-        tabs=[
-            ft.Tab(text="Status",        content=StatusPage(page).build()),
-            ft.Tab(text="Local Results", content=LocalResultsPage(page).build()),
-        ],
     )
 
     page.add(
