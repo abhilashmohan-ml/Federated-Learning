@@ -18,7 +18,7 @@ class SettingsPage:
                 ft.TextField(label="DP Noise Sigma",  value="0.01", width=180),
                 ft.TextField(label="Min Sites/Round", value="3",    width=180),
             ], spacing=12, wrap=True),
-            ft.ElevatedButton("Save Hyperparameters", icon=ft.Icons.SAVE),
+            ft.Button("Save Hyperparameters", icon=ft.Icons.SAVE),
             ft.Divider(),
             ft.Text("Registered Sites", size=17),
             ft.DataTable(

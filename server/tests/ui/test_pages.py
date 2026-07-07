@@ -2,7 +2,9 @@
 from unittest.mock import MagicMock
 import flet as ft
 
-from server.ui.pages.global_model import GlobalModelPage, _PARAM_ROWS
+from server.ui.pages.dashboard     import DashboardPage
+from server.ui.pages.site_monitor  import SiteMonitorPage
+from server.ui.pages.global_model  import GlobalModelPage, _PARAM_ROWS
 from server.ui.pages.graphs        import GraphsPage
 from server.ui.pages.settings      import SettingsPage
 
@@ -106,13 +108,13 @@ class TestSettingsPage:
     def test_build_returns_column(self) -> None:
         assert isinstance(SettingsPage(_mock_page()).build(), ft.Column)
 
-    def test_build_has_elevated_button(self) -> None:
+    def test_build_has_button(self) -> None:
         col = SettingsPage(_mock_page()).build()
-        assert any(isinstance(c, ft.ElevatedButton) for c in col.controls)
+        assert any(isinstance(c, ft.Button) for c in col.controls)
 
     def test_build_button_icon_save(self) -> None:
         col = SettingsPage(_mock_page()).build()
-        btn = next(c for c in col.controls if isinstance(c, ft.ElevatedButton))
+        btn = next(c for c in col.controls if isinstance(c, ft.Button))
         assert btn.icon == ft.Icons.SAVE
 
     def test_build_has_data_table(self) -> None:
@@ -137,3 +139,109 @@ class TestSettingsPage:
         col = SettingsPage(_mock_page()).build()
         param_row = next(c for c in col.controls if isinstance(c, ft.Row))
         assert len(param_row.controls) == 5
+
+
+# ---------------------------------------------------------------------------
+# dashboard
+# ---------------------------------------------------------------------------
+
+class TestDashboardPage:
+    def test_init_stores_page(self) -> None:
+        page = _mock_page()
+        assert DashboardPage(page).page is page
+
+    def test_build_returns_container(self) -> None:
+        ctrl = DashboardPage(_mock_page()).build()
+        assert isinstance(ctrl, ft.Container)
+
+    def test_build_container_padding_24(self) -> None:
+        ctrl = DashboardPage(_mock_page()).build()
+        assert ctrl.padding == 24
+
+    def test_build_inner_column_scrollable(self) -> None:
+        ctrl = DashboardPage(_mock_page()).build()
+        inner = ctrl.content
+        assert isinstance(inner, ft.Column)
+        assert inner.scroll == ft.ScrollMode.AUTO
+
+    def test_build_inner_column_expand(self) -> None:
+        ctrl = DashboardPage(_mock_page()).build()
+        assert ctrl.content.expand is True
+
+    def test_build_contains_heading_text(self) -> None:
+        ctrl = DashboardPage(_mock_page()).build()
+        col = ctrl.content
+        heading = next(
+            c for c in col.controls
+            if isinstance(c, ft.Text) and "Dashboard" in c.value
+        )
+        assert heading.size == 26
+
+    def test_build_contains_site_cards_row(self) -> None:
+        ctrl = DashboardPage(_mock_page()).build()
+        col = ctrl.content
+        site_row = next(c for c in col.controls if isinstance(c, ft.Row))
+        assert len(site_row.controls) == 5
+
+    def test_build_contains_round_timeline(self) -> None:
+        ctrl = DashboardPage(_mock_page()).build()
+        col = ctrl.content
+        # RoundTimeline.build() returns ft.Column
+        timeline_cols = [c for c in col.controls if isinstance(c, ft.Column)]
+        assert len(timeline_cols) >= 1
+
+
+# ---------------------------------------------------------------------------
+# site_monitor
+# ---------------------------------------------------------------------------
+
+class TestSiteMonitorPage:
+    def test_init_stores_page(self) -> None:
+        page = _mock_page()
+        assert SiteMonitorPage(page).page is page
+
+    def test_build_returns_container(self) -> None:
+        ctrl = SiteMonitorPage(_mock_page()).build()
+        assert isinstance(ctrl, ft.Container)
+
+    def test_build_container_padding_24(self) -> None:
+        ctrl = SiteMonitorPage(_mock_page()).build()
+        assert ctrl.padding == 24
+
+    def test_build_inner_column_scrollable(self) -> None:
+        ctrl = SiteMonitorPage(_mock_page()).build()
+        inner = ctrl.content
+        assert isinstance(inner, ft.Column)
+        assert inner.scroll == ft.ScrollMode.AUTO
+
+    def test_build_contains_site_dropdown(self) -> None:
+        ctrl = SiteMonitorPage(_mock_page()).build()
+        col = ctrl.content
+        dd = next(c for c in col.controls if isinstance(c, ft.Dropdown))
+        assert dd.value == "site_1"
+        assert len(dd.options) == 5
+
+    def test_build_contains_metrics_row(self) -> None:
+        ctrl = SiteMonitorPage(_mock_page()).build()
+        col = ctrl.content
+        metrics_row = next(c for c in col.controls if isinstance(c, ft.Row))
+        assert len(metrics_row.controls) == 5
+
+    def test_build_contains_flux_chart(self) -> None:
+        ctrl = SiteMonitorPage(_mock_page()).build()
+        col = ctrl.content
+        # FluxChart.build() → ft.Container
+        chart_containers = [
+            c for c in col.controls
+            if isinstance(c, ft.Container) and c.height == 270
+        ]
+        assert len(chart_containers) == 1
+
+    def test_build_heading_text(self) -> None:
+        ctrl = SiteMonitorPage(_mock_page()).build()
+        col = ctrl.content
+        heading = next(
+            c for c in col.controls
+            if isinstance(c, ft.Text) and "Monitor" in c.value
+        )
+        assert heading.size == 26

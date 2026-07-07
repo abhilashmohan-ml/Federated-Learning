@@ -46,13 +46,13 @@ class TestStatusPage:
         col = self._make().build()
         assert len([c for c in col.controls if isinstance(c, ft.Card)]) == 3
 
-    def test_build_has_elevated_button(self) -> None:
+    def test_build_has_button(self) -> None:
         col = self._make().build()
-        assert any(isinstance(c, ft.ElevatedButton) for c in col.controls)
+        assert any(isinstance(c, ft.Button) for c in col.controls)
 
     def test_build_button_icon_play_arrow(self) -> None:
         col = self._make().build()
-        btn = next(c for c in col.controls if isinstance(c, ft.ElevatedButton))
+        btn = next(c for c in col.controls if isinstance(c, ft.Button))
         assert btn.icon == ft.Icons.PLAY_ARROW
 
     def test_build_status_text_color_grey_400(self) -> None:

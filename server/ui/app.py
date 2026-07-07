@@ -48,4 +48,4 @@ def main(page: ft.Page) -> None:
 
 if __name__ == "__main__":
     s = get_settings()
-    ft.app(target=main, port=s.flet_port, view=ft.AppView.WEB_BROWSER)
+    ft.run(main, port=s.flet_port, view=ft.AppView.WEB_BROWSER)

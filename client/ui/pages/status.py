@@ -32,9 +32,9 @@ class StatusPage:
                 ft.Text("DP noise σ  : " + str(self.settings.dp_noise_sigma), size=13),
             ], spacing=4), padding=16)),
 
-            ft.ElevatedButton(
+            ft.Button(
                 "Trigger Manual Round",
                 icon=ft.Icons.PLAY_ARROW,
-                on_click=lambda e: None,   # TODO: call fl_client.upload_update()
+                on_click=lambda e: None,
             ),
         ], spacing=14, scroll=ft.ScrollMode.AUTO)

@@ -24,13 +24,17 @@ class SiteMonitorPage:
             MetricTile("Round",        "--", "").build(),
         ], spacing=12, wrap=True)
 
-        return ft.Column([
-            ft.Text("Site Monitor", size=26, weight=ft.FontWeight.BOLD),
-            site_dd,
-            ft.Divider(),
-            metrics,
-            ft.Text("Flux Decline J(t)", size=16),
-            FluxChart().build(),
-            ft.Text("LRV vs Flux", size=16),
-            LRVChart().build(),
-        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16, padding=24)
+        return ft.Container(
+            content=ft.Column([
+                ft.Text("Site Monitor", size=26, weight=ft.FontWeight.BOLD),
+                site_dd,
+                ft.Divider(),
+                metrics,
+                ft.Text("Flux Decline J(t)", size=16),
+                FluxChart().build(),
+                ft.Text("LRV vs Flux", size=16),
+                LRVChart().build(),
+            ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16),
+            padding=24,
+            expand=True,
+        )
