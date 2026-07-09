@@ -1,9 +1,10 @@
 """Unit tests for client/ui/pages — 100% line + branch coverage."""
+
 from unittest.mock import MagicMock, patch
 import flet as ft
 
 from client.ui.pages.local_results import LocalResultsPage
-from client.ui.pages.status        import StatusPage
+from client.ui.pages.status import StatusPage
 
 
 def _mock_page() -> MagicMock:
@@ -23,17 +24,24 @@ def _mock_settings(**kwargs) -> MagicMock:
 # status
 # ---------------------------------------------------------------------------
 
+
 class TestStatusPage:
     def _make(self, **kwargs) -> StatusPage:
-        with patch("client.ui.pages.status.get_client_settings",
-                   return_value=_mock_settings(**kwargs)):
-            return StatusPage(_mock_page())
+        mock_fl = MagicMock()
+        with patch(
+            "client.ui.pages.status.get_client_settings",
+            return_value=_mock_settings(**kwargs),
+        ):
+            return StatusPage(_mock_page(), fl_client=mock_fl)
 
     def test_init_stores_page(self) -> None:
         page = _mock_page()
-        with patch("client.ui.pages.status.get_client_settings",
-                   return_value=_mock_settings()):
-            sp = StatusPage(page)
+        mock_fl = MagicMock()
+        with patch(
+            "client.ui.pages.status.get_client_settings",
+            return_value=_mock_settings(),
+        ):
+            sp = StatusPage(page, fl_client=mock_fl)
         assert sp.page is page
 
     def test_init_loads_settings(self) -> None:
@@ -60,7 +68,8 @@ class TestStatusPage:
         conn_card = next(c for c in col.controls if isinstance(c, ft.Card))
         inner_col = conn_card.content.content
         status_text = next(
-            t for t in inner_col.controls
+            t
+            for t in inner_col.controls
             if isinstance(t, ft.Text) and t.color == ft.Colors.GREY_400
         )
         assert "IDLE" in status_text.value
@@ -84,10 +93,91 @@ class TestStatusPage:
         texts = [t.value for t in training_card.content.content.controls if isinstance(t, ft.Text)]
         assert any("0.05" in v for v in texts)
 
+    def test_init_stores_fl_client(self) -> None:
+        mock_fl = MagicMock()
+        with patch(
+            "client.ui.pages.status.get_client_settings",
+            return_value=_mock_settings(),
+        ):
+            sp = StatusPage(_mock_page(), fl_client=mock_fl)
+        assert sp.fl_client is mock_fl
+
+    def test_round_text_initialized_to_dash(self) -> None:
+        sp = self._make()
+        assert "—" in sp._round_text.value
+
+    def test_phase_text_initialized_to_dash(self) -> None:
+        sp = self._make()
+        assert "—" in sp._phase_text.value
+
+    def test_button_on_click_bound_to_handle_round_click(self) -> None:
+        sp = self._make()
+        col = sp.build()
+        btn = next(c for c in col.controls if isinstance(c, ft.Button))
+        assert btn.on_click == sp._handle_round_click
+
+    def test_button_on_click_spawns_daemon_thread(self) -> None:
+        sp = self._make()
+        mock_thread = MagicMock()
+        with patch("client.ui.pages.status.threading.Thread", return_value=mock_thread) as mock_cls:
+            sp._handle_round_click(MagicMock())
+        mock_cls.assert_called_once_with(target=sp._run_round, daemon=True, name="fl-manual-round")
+        mock_thread.start.assert_called_once()
+
+    def test_run_round_updates_round_text_with_id(self) -> None:
+        from datetime import datetime, timezone
+
+        from shared.schemas.federation import FederationRound, RoundStatus
+
+        sp = self._make()
+        sp.fl_client.start_round.return_value = FederationRound(
+            round_id=7,
+            status=RoundStatus.COLLECTING,
+            started_at=datetime.now(timezone.utc),
+        )
+        sp._run_round()
+        assert "7" in sp._round_text.value
+
+    def test_run_round_updates_phase_text_with_status(self) -> None:
+        from datetime import datetime, timezone
+
+        from shared.schemas.federation import FederationRound, RoundStatus
+
+        sp = self._make()
+        sp.fl_client.start_round.return_value = FederationRound(
+            round_id=1,
+            status=RoundStatus.COLLECTING,
+            started_at=datetime.now(timezone.utc),
+        )
+        sp._run_round()
+        assert "collecting" in sp._phase_text.value
+
+    def test_run_round_calls_page_update(self) -> None:
+        from datetime import datetime, timezone
+
+        from shared.schemas.federation import FederationRound, RoundStatus
+
+        sp = self._make()
+        sp.fl_client.start_round.return_value = FederationRound(
+            round_id=1,
+            status=RoundStatus.COLLECTING,
+            started_at=datetime.now(timezone.utc),
+        )
+        sp._run_round()
+        sp.page.update.assert_called_once()
+
+    def test_run_round_on_error_sets_error_text_and_calls_page_update(self) -> None:
+        sp = self._make()
+        sp.fl_client.start_round.side_effect = RuntimeError("server down")
+        sp._run_round()
+        assert "ERROR" in sp._round_text.value
+        sp.page.update.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # local_results
 # ---------------------------------------------------------------------------
+
 
 class TestLocalResultsPage:
     def test_init_stores_page(self) -> None:
