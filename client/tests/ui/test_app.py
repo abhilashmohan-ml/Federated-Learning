@@ -1,4 +1,5 @@
 """Unit tests for client/ui/app — covers main() and TabBar/TabBarView construction."""
+
 from unittest.mock import MagicMock, patch
 import flet as ft
 
@@ -72,9 +73,7 @@ def find_layout_violations(
     child_row = inside_row or isinstance(ctrl, ft.Row)
 
     for child in _iter_children(ctrl):
-        violations.extend(
-            find_layout_violations(child, inside_col=child_col, inside_row=child_row)
-        )
+        violations.extend(find_layout_violations(child, inside_col=child_col, inside_row=child_row))
     return violations
 
 
@@ -101,9 +100,12 @@ def _run_main(**setting_kwargs):
 
     page.add.side_effect = capture_add
 
-    with patch("client.ui.app.get_client_settings", return_value=settings), \
-         patch("client.ui.app.StatusPage") as MockStatus, \
-         patch("client.ui.app.LocalResultsPage") as MockResults:
+    with (
+        patch("client.ui.app.get_client_settings", return_value=settings),
+        patch("client.ui.app.FLClient"),
+        patch("client.ui.app.StatusPage") as MockStatus,
+        patch("client.ui.app.LocalResultsPage") as MockResults,
+    ):
         MockStatus.return_value.build.return_value = ft.Column()
         MockResults.return_value.build.return_value = ft.Column()
         main(page)
@@ -112,7 +114,7 @@ def _run_main(**setting_kwargs):
     tabs_ctrl = captured_tabs[0] if captured_tabs else None
     if tabs_ctrl is not None:
         inner_col: ft.Column = tabs_ctrl.content
-        tab_bar  = next((c for c in inner_col.controls if isinstance(c, ft.TabBar)),  None)
+        tab_bar = next((c for c in inner_col.controls if isinstance(c, ft.TabBar)), None)
         tab_view = next((c for c in inner_col.controls if isinstance(c, ft.TabBarView)), None)
 
     return page, tabs_ctrl, tab_bar, tab_view
@@ -131,9 +133,12 @@ class TestLayoutConstraints:
         page = _mock_page()
         controls_added: list[ft.Control] = []
         page.add.side_effect = lambda *args: controls_added.extend(args)
-        with patch("client.ui.app.get_client_settings", return_value=_mock_settings()), \
-             patch("client.ui.app.StatusPage") as MockStatus, \
-             patch("client.ui.app.LocalResultsPage") as MockResults:
+        with (
+            patch("client.ui.app.get_client_settings", return_value=_mock_settings()),
+            patch("client.ui.app.FLClient"),
+            patch("client.ui.app.StatusPage") as MockStatus,
+            patch("client.ui.app.LocalResultsPage") as MockResults,
+        ):
             MockStatus.return_value.build.return_value = ft.Column()
             MockResults.return_value.build.return_value = ft.Column()
             main(page)
@@ -250,7 +255,7 @@ class TestMain:
     def test_tab_bar_view_controls_are_status_and_results(self) -> None:
         page = _mock_page()
         settings = _mock_settings()
-        status_col  = ft.Column([ft.Text("status")])
+        status_col = ft.Column([ft.Text("status")])
         results_col = ft.Column([ft.Text("results")])
         captured_tabs: list[ft.Tabs] = []
 
@@ -261,9 +266,12 @@ class TestMain:
 
         page.add.side_effect = capture_add
 
-        with patch("client.ui.app.get_client_settings", return_value=settings), \
-             patch("client.ui.app.StatusPage") as MockStatus, \
-             patch("client.ui.app.LocalResultsPage") as MockResults:
+        with (
+            patch("client.ui.app.get_client_settings", return_value=settings),
+            patch("client.ui.app.FLClient"),
+            patch("client.ui.app.StatusPage") as MockStatus,
+            patch("client.ui.app.LocalResultsPage") as MockResults,
+        ):
             MockStatus.return_value.build.return_value = status_col
             MockResults.return_value.build.return_value = results_col
             main(page)
@@ -272,3 +280,36 @@ class TestMain:
         tab_view = next(c for c in inner_col.controls if isinstance(c, ft.TabBarView))
         assert tab_view.controls[0] is status_col
         assert tab_view.controls[1] is results_col
+
+
+def _run_main_full(**setting_kwargs):
+    page = _mock_page()
+    settings = _mock_settings(**setting_kwargs)
+    mock_fl = MagicMock()
+    page.add.side_effect = lambda *args: None
+
+    with (
+        patch("client.ui.app.get_client_settings", return_value=settings),
+        patch("client.ui.app.FLClient", return_value=mock_fl) as MockFLC,
+        patch("client.ui.app.StatusPage") as MockStatus,
+        patch("client.ui.app.LocalResultsPage") as MockResults,
+    ):
+        MockStatus.return_value.build.return_value = ft.Column()
+        MockResults.return_value.build.return_value = ft.Column()
+        main(page)
+
+    return page, mock_fl, MockFLC, MockStatus
+
+
+class TestFLClientIntegration:
+    def test_fl_client_instantiated_once(self) -> None:
+        _, _, MockFLC, _ = _run_main_full()
+        MockFLC.assert_called_once_with()
+
+    def test_authenticate_called_on_fl_client(self) -> None:
+        _, mock_fl, _, _ = _run_main_full()
+        mock_fl.authenticate.assert_called_once_with()
+
+    def test_status_page_receives_fl_client(self) -> None:
+        _, mock_fl, _, MockStatus = _run_main_full()
+        assert MockStatus.call_args.kwargs.get("fl_client") is mock_fl
