@@ -173,6 +173,36 @@ class TestStatusPage:
         assert "ERROR" in sp._round_text.value
         sp.page.update.assert_called_once()
 
+    def test_handle_round_click_disables_button_before_spawning_thread(self) -> None:
+        sp = self._make()
+        sp.build()  # initialise self._round_button reference in the column
+        mock_thread = MagicMock()
+        with patch("client.ui.pages.status.threading.Thread", return_value=mock_thread):
+            sp._handle_round_click(MagicMock())
+        assert sp._round_button.disabled is True
+
+    def test_run_round_re_enables_button_on_success(self) -> None:
+        from datetime import datetime, timezone
+
+        from shared.schemas.federation import FederationRound, RoundStatus
+
+        sp = self._make()
+        sp._round_button.disabled = True
+        sp.fl_client.start_round.return_value = FederationRound(
+            round_id=1,
+            status=RoundStatus.COLLECTING,
+            started_at=datetime.now(timezone.utc),
+        )
+        sp._run_round()
+        assert sp._round_button.disabled is False
+
+    def test_run_round_re_enables_button_on_error(self) -> None:
+        sp = self._make()
+        sp._round_button.disabled = True
+        sp.fl_client.start_round.side_effect = RuntimeError("boom")
+        sp._run_round()
+        assert sp._round_button.disabled is False
+
 
 # ---------------------------------------------------------------------------
 # local_results

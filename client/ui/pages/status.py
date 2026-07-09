@@ -18,6 +18,11 @@ class StatusPage:
         self.fl_client = fl_client
         self._round_text = ft.Text("Round  : —", size=13)
         self._phase_text = ft.Text("Phase  : —", size=13)
+        self._round_button = ft.Button(
+            "Trigger Manual Round",
+            icon=ft.Icons.PLAY_ARROW,
+            on_click=self._handle_round_click,
+        )
 
     def _run_round(self) -> None:
         """Network call — always invoked on a background daemon thread, never on the UI thread."""
@@ -28,10 +33,13 @@ class StatusPage:
         except Exception as exc:  # noqa: BLE001
             self._round_text.value = "Round  : ERROR"
             self._phase_text.value = f"Phase  : {str(exc)[:40]}"
+        self._round_button.disabled = False
         self.page.update()
 
     def _handle_round_click(self, e: Any) -> None:  # noqa: ANN401
-        """Button on_click — spawns daemon thread so the UI never blocks."""
+        """Button on_click — disables button to prevent concurrent rounds, then spawns daemon thread."""
+        self._round_button.disabled = True
+        self.page.update()
         threading.Thread(target=self._run_round, daemon=True, name="fl-manual-round").start()
 
     def build(self) -> ft.Control:
@@ -83,11 +91,7 @@ class StatusPage:
                         padding=16,
                     )
                 ),
-                ft.Button(
-                    "Trigger Manual Round",
-                    icon=ft.Icons.PLAY_ARROW,
-                    on_click=self._handle_round_click,
-                ),
+                self._round_button,
             ],
             spacing=14,
             scroll=ft.ScrollMode.AUTO,

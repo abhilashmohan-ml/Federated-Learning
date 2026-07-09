@@ -287,7 +287,9 @@ class FLClient:
             self._do_refresh()
             resp = self._request("POST", url, headers=self.auth_headers)
         resp.raise_for_status()
-        return FederationRound(**resp.json())
+        result = FederationRound(**resp.json())
+        log.info("round_started", site=self.settings.site_id, round_id=result.round_id)
+        return result
 
     def _do_refresh(self) -> None:
         """

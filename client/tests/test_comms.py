@@ -748,3 +748,17 @@ class TestStartRound:
             fl.start_round()
 
         resp.raise_for_status.assert_called_once()
+
+    def test_logs_round_started_on_success(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json(round_id=5))
+        with (
+            patch.object(fl, "_request", return_value=resp),
+            patch("client.comms.fl_client.log") as mock_log,
+        ):
+            fl.start_round()
+        mock_log.info.assert_called_once_with(
+            "round_started",
+            site=fl.settings.site_id,
+            round_id=5,
+        )
