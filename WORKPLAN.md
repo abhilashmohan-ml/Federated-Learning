@@ -53,8 +53,8 @@
   - [ ] All component widgets
 
 ## Phase 7: Client Flet UI  (Week 9)
-  - [ ] client/ui/app.py
-  - [ ] pages/status.py
+  - [x] client/ui/app.py — constructs FLClient, calls authenticate(), passes fl_client to StatusPage
+  - [x] pages/status.py — Trigger Manual Round button wired to FLClient.start_round() on daemon thread
   - [ ] pages/local_results.py
 
 ## Phase 8: Docker & Integration  (Week 10)
@@ -69,6 +69,11 @@
   - [x] fix(ui): migrate all Flet UI from deprecated `ft.colors.*`/`ft.icons.*` to
          `ft.Colors.*`/`ft.Icons.*` required by Flet 0.85.3 — affects 11 files across
          server/ui/ and client/ui/
+  - [x] feat(client): add FLClient.start_round() with 401-refresh-retry pattern;
+         StatusPage now requires fl_client: FLClient argument; Trigger Manual Round
+         button calls start_round() on a background daemon thread and updates
+         _round_text / _phase_text on completion; app.py constructs FLClient,
+         calls authenticate(), and passes it to StatusPage — branch fix/flet-colors-icons-api
 
 ## Test Coverage
   - [x] 100% line+branch coverage achieved for shared/ (all models, schemas, crypto, utils)
