@@ -1,13 +1,13 @@
 """Unit tests for client/comms — fl_client and heartbeat. 100% coverage."""
+
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 
 from shared.schemas.federation import ModelUpdate
-
 
 # ─── sentinel ────────────────────────────────────────────────────────────────
 
@@ -54,6 +54,19 @@ def _make_update() -> ModelUpdate:
         n_samples=100,
         delta_W={"layer_1": [0.1, 0.2]},
     )
+
+
+def _make_round_json(round_id: int = 1, status: str = "collecting") -> dict:
+    from datetime import datetime, timezone
+
+    return {
+        "round_id": round_id,
+        "status": status,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None,
+        "participating_sites": [],
+        "global_model_version": 0,
+    }
 
 
 def _build_fl_client(settings: MagicMock | None = None) -> object:
@@ -506,9 +519,7 @@ class TestBeat:
             with pytest.raises(_BreakLoop):
                 _beat()
 
-        mock_log.debug.assert_called_once_with(
-            "heartbeat", site="site_1", status=200
-        )
+        mock_log.debug.assert_called_once_with("heartbeat", site="site_1", status=200)
 
     def test_failed_ping_logs_warning_with_error_message(self) -> None:
         settings = _mock_settings()
@@ -571,9 +582,7 @@ class TestBeat:
 
         with (
             patch("client.comms.heartbeat.get_client_settings", return_value=settings),
-            patch(
-                "client.comms.heartbeat.httpx.Client", return_value=mock_http
-            ) as mock_cls,
+            patch("client.comms.heartbeat.httpx.Client", return_value=mock_http) as mock_cls,
             patch("client.comms.heartbeat.time.sleep", side_effect=_BreakLoop),
         ):
             from client.comms.heartbeat import _beat
@@ -608,9 +617,7 @@ class TestBeat:
         with (
             patch("client.comms.heartbeat.get_client_settings", return_value=settings),
             patch("client.comms.heartbeat.httpx.Client", return_value=mock_http),
-            patch(
-                "client.comms.heartbeat.time.sleep", side_effect=_BreakLoop
-            ) as mock_sleep,
+            patch("client.comms.heartbeat.time.sleep", side_effect=_BreakLoop) as mock_sleep,
         ):
             from client.comms.heartbeat import INTERVAL, _beat
 
@@ -629,9 +636,7 @@ class TestStartHeartbeat:
     def test_creates_thread_with_correct_target_name_and_daemon(self) -> None:
         mock_thread = MagicMock()
 
-        with patch(
-            "client.comms.heartbeat.threading.Thread", return_value=mock_thread
-        ) as mock_cls:
+        with patch("client.comms.heartbeat.threading.Thread", return_value=mock_thread) as mock_cls:
             from client.comms.heartbeat import _beat, start_heartbeat
 
             start_heartbeat()
@@ -651,9 +656,7 @@ class TestStartHeartbeat:
     def test_thread_daemon_flag_is_true(self) -> None:
         mock_thread = MagicMock()
 
-        with patch(
-            "client.comms.heartbeat.threading.Thread", return_value=mock_thread
-        ) as mock_cls:
+        with patch("client.comms.heartbeat.threading.Thread", return_value=mock_thread) as mock_cls:
             from client.comms.heartbeat import start_heartbeat
 
             start_heartbeat()
@@ -663,11 +666,85 @@ class TestStartHeartbeat:
     def test_thread_name_is_fl_heartbeat(self) -> None:
         mock_thread = MagicMock()
 
-        with patch(
-            "client.comms.heartbeat.threading.Thread", return_value=mock_thread
-        ) as mock_cls:
+        with patch("client.comms.heartbeat.threading.Thread", return_value=mock_thread) as mock_cls:
             from client.comms.heartbeat import start_heartbeat
 
             start_heartbeat()
 
         assert mock_cls.call_args.kwargs["name"] == "fl-heartbeat"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FLClient — start_round
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestStartRound:
+    def test_success_returns_federation_round(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json(round_id=3, status="collecting"))
+        from shared.schemas.federation import FederationRound
+
+        with patch.object(fl, "_request", return_value=resp):
+            result = fl.start_round()
+
+        assert isinstance(result, FederationRound)
+        assert result.round_id == 3
+
+    def test_401_triggers_do_refresh_then_retries(self) -> None:
+        fl = _build_fl_client()
+        resp_401 = _mock_resp(401)
+        resp_200 = _mock_resp(200, _make_round_json())
+
+        with (
+            patch.object(fl, "_request", side_effect=[resp_401, resp_200]) as mock_req,
+            patch.object(fl, "_do_refresh") as mock_refresh,
+        ):
+            fl.start_round()
+
+        assert mock_req.call_count == 2
+        mock_refresh.assert_called_once()
+        resp_200.raise_for_status.assert_called_once()
+
+    def test_no_refresh_on_200(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json())
+
+        with (
+            patch.object(fl, "_request", return_value=resp),
+            patch.object(fl, "_do_refresh") as mock_refresh,
+        ):
+            fl.start_round()
+
+        mock_refresh.assert_not_called()
+
+    def test_posts_to_federation_round_start_url(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json())
+
+        with patch.object(fl, "_request", return_value=resp) as mock_req:
+            fl.start_round()
+
+        args = mock_req.call_args.args
+        assert args[0] == "POST"
+        assert args[1] == "http://localhost:8000/federation/round/start"
+
+    def test_auth_headers_included_in_request(self) -> None:
+        fl = _build_fl_client()
+        fl._access_token = "tok_abc"
+        resp = _mock_resp(200, _make_round_json())
+
+        with patch.object(fl, "_request", return_value=resp) as mock_req:
+            fl.start_round()
+
+        headers = mock_req.call_args.kwargs["headers"]
+        assert headers == {"Authorization": "Bearer tok_abc"}
+
+    def test_calls_raise_for_status(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json())
+
+        with patch.object(fl, "_request", return_value=resp):
+            fl.start_round()
+
+        resp.raise_for_status.assert_called_once()
