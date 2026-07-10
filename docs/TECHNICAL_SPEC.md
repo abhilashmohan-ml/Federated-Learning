@@ -130,6 +130,8 @@ Start a new federation round.
 
 **Implementation:** `RoundManager.start_new_round()` increments `_current_round_id`, creates `FederationRound`, starts `asyncio.Task` timeout guard.
 
+**Client usage:** Called by `FLClient.start_round()` — see Section 12.1.
+
 ---
 
 #### POST `/federation/update`
@@ -497,4 +499,79 @@ Attempt 3  →  fails  →  raise RuntimeError
 
 Delay doubles on each attempt (exponential backoff, base 2s). HTTP 4xx/5xx responses are NOT retried — only transport-level exceptions are.
 
-On HTTP 401 from `upload_update`, a single token refresh is attempted before re-raising.
+On HTTP 401 from `upload_update` or `start_round`, a single token refresh is attempted before re-raising (see Section 12.1 for details).
+
+---
+
+## 12. Client HTTP Interface (`client/comms/fl_client.py`)
+
+### 12.1 `FLClient.start_round() -> FederationRound`
+
+Triggers a new FL federation round by posting to `POST /federation/round/start`.
+
+```python
+def start_round(self) -> FederationRound:
+    url = f"{self.settings.server_url}/federation/round/start"
+    resp = self._request("POST", url, headers=self.auth_headers)
+    if resp.status_code == 401:
+        self._do_refresh()
+        resp = self._request("POST", url, headers=self.auth_headers)
+    resp.raise_for_status()
+    return FederationRound(**resp.json())
+```
+
+**401-refresh-retry pattern:** If the access token has expired mid-session, the 401 response triggers a single silent token refresh via `_do_refresh()` (which rotates both access and refresh tokens), then retries the original request exactly once. Any subsequent failure propagates to the caller.
+
+**Returns:** `FederationRound` — the Pydantic schema object with `round_id`, `status`, `started_at`, `completed_at`, `participating_sites`, and `global_model_version`.
+
+**Raises:** `httpx.HTTPStatusError` on non-401 HTTP errors; `RuntimeError` after all transport retries exhausted.
+
+---
+
+## 13. Client UI (`client/ui/`)
+
+### 13.1 `StatusPage(page: ft.Page, fl_client: FLClient)`
+
+Operator dashboard page showing connection info, current round state, and local training metrics.
+
+**Constructor signature (as of fix/flet-colors-icons-api):**
+
+```python
+class StatusPage:
+    def __init__(self, page: ft.Page, fl_client: FLClient) -> None:
+        ...
+```
+
+`fl_client` is a **required** positional-or-keyword argument. The previous signature (no `fl_client` parameter) is removed. Callers must pass an already-authenticated `FLClient` instance.
+
+**Trigger Manual Round button:**
+
+The `build()` method renders an `ft.Button("Trigger Manual Round", icon=ft.Icons.PLAY_ARROW)`. Its `on_click` is bound to `_handle_round_click`, which spawns a background daemon thread:
+
+```python
+def _handle_round_click(self, e: Any) -> None:
+    threading.Thread(target=self._run_round, daemon=True, name="fl-manual-round").start()
+
+def _run_round(self) -> None:
+    try:
+        round_info = self.fl_client.start_round()
+        self._round_text.value = f"Round  : {round_info.round_id}"
+        self._phase_text.value = f"Phase  : {round_info.status.value}"
+    except Exception as exc:
+        self._round_text.value = "Round  : ERROR"
+        self._phase_text.value = f"Phase  : {str(exc)[:40]}"
+    self.page.update()
+```
+
+The daemon thread ensures the Flet UI event loop is never blocked during the HTTP round-trip to the server. `page.update()` is always called (even on error) so the operator sees feedback immediately.
+
+### 13.2 `client/ui/app.py — main()`
+
+`main()` follows this construction order:
+
+1. Load `ClientSettings` via `get_client_settings()`.
+2. Instantiate `FLClient()`.
+3. Call `fl.authenticate()` — blocks until tokens are obtained.
+4. Pass `fl` to `StatusPage(page, fl_client=fl)`.
+
+This guarantees `StatusPage` always holds a fully-authenticated client before any button click can occur.

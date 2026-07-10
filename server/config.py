@@ -68,7 +68,7 @@ class ServerSettings(BaseSettings):
       - extra="ignore"  : silently ignore env vars that don't match any field
                           (prevents errors if you have unrelated vars in your env)
     """
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_ignore_empty=True)
 
     # JWT signing secret — CHANGE THIS in production!
     # Used to sign and verify JWT access/refresh tokens.
@@ -83,11 +83,12 @@ class ServerSettings(BaseSettings):
     host: str = "0.0.0.0"   # listen on all network interfaces (required inside Docker)
     port: int = 8000          # the FastAPI/uvicorn HTTP port
 
-    # CORS_ORIGINS env var: comma-separated list of allowed web origins.
-    # Leave empty to allow all origins without credentials (convenient for dev).
-    # In production: set to the exact HTTPS URLs of your Flet UI instances.
-    # Example: "https://server.example.com,https://site1.example.com"
-    cors_origins: list[str] = _DEFAULT_CORS
+    # CORS_ORIGINS env var: JSON array of allowed web origins.
+    # Dev:  CORS_ORIGINS=[]   → empty list → allow all origins (no credentials)
+    # Prod: CORS_ORIGINS=["https://server.example.com","https://site1.example.com"]
+    # pydantic-settings v2 requires JSON array format for list fields.
+    # env_ignore_empty=True means a bare CORS_ORIGINS= is treated as not set → uses [] default.
+    cors_origins: list[str] = []
 
     # TLS/HTTPS: provide both to enable encrypted connections.
     # If either is None (the default), the server runs on plain HTTP.

@@ -1,5 +1,4 @@
 """Local results page — J(t) chart and summary metrics."""
-import math
 import flet as ft
 
 
@@ -8,43 +7,43 @@ class LocalResultsPage:
         self.page = page
 
     def build(self) -> ft.Control:
-        flux_chart = ft.LineChart(
-            data_series=[ft.LineChartData(
-                data_points=[
-                    ft.LineChartDataPoint(x=t, y=100 * math.exp(-0.022 * t))
-                    for t in range(0, 61, 2)
-                ],
-                stroke_width=2, color=ft.colors.CYAN, curved=True,
-            )],
-            left_axis=ft.ChartAxis(title=ft.Text("Flux (LMH)"), title_size=13),
-            bottom_axis=ft.ChartAxis(title=ft.Text("Time (min)"), title_size=13),
-            height=260, expand=True,
+        flux_chart = ft.Container(
+            content=ft.Column([
+                ft.Text("Flux (LMH) vs Time (min)", size=13, weight=ft.FontWeight.BOLD),
+                ft.Text("Flux Decline J(t)  (data populates after first local training)",
+                        size=12, color=ft.Colors.CYAN),
+            ], spacing=8),
+            height=260,
+            expand=True,
+            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.CYAN),
+            border_radius=8,
+            padding=16,
         )
 
         metrics = ft.Row([
             ft.Card(content=ft.Container(ft.Column([
-                ft.Text("LRV",  size=11, color=ft.colors.GREY_500),
+                ft.Text("LRV",  size=11, color=ft.Colors.GREY_500),
                 ft.Text("—",    size=22, weight=ft.FontWeight.BOLD),
             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=14, width=110, alignment=ft.alignment.center)),
+            padding=14, width=110, alignment=ft.Alignment(0, 0))),
 
             ft.Card(content=ft.Container(ft.Column([
-                ft.Text("Amin (m2)", size=11, color=ft.colors.GREY_500),
+                ft.Text("Amin (m2)", size=11, color=ft.Colors.GREY_500),
                 ft.Text("—",        size=22, weight=ft.FontWeight.BOLD),
             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=14, width=120, alignment=ft.alignment.center)),
+            padding=14, width=120, alignment=ft.Alignment(0, 0))),
 
             ft.Card(content=ft.Container(ft.Column([
-                ft.Text("Flux Ratio",  size=11, color=ft.colors.GREY_500),
+                ft.Text("Flux Ratio",  size=11, color=ft.Colors.GREY_500),
                 ft.Text("—",           size=22, weight=ft.FontWeight.BOLD),
             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=14, width=120, alignment=ft.alignment.center)),
+            padding=14, width=120, alignment=ft.Alignment(0, 0))),
 
             ft.Card(content=ft.Container(ft.Column([
-                ft.Text("Best Model", size=11, color=ft.colors.GREY_500),
+                ft.Text("Best Model", size=11, color=ft.Colors.GREY_500),
                 ft.Text("—",          size=16, weight=ft.FontWeight.BOLD),
             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=14, width=140, alignment=ft.alignment.center)),
+            padding=14, width=140, alignment=ft.Alignment(0, 0))),
         ], spacing=10, wrap=True)
 
         return ft.Column([

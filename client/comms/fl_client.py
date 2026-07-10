@@ -61,6 +61,7 @@ PYTHON CONCEPT: tuple[type[Exception], ...]
   any of the listed exception types in the same `except` clause. The `...`
   (Ellipsis) in the type hint means "any number of elements."
 """
+
 from __future__ import annotations
 
 import time
@@ -70,7 +71,7 @@ import httpx
 
 from client.config import get_client_settings
 from shared.schemas.auth import RefreshRequest, TokenRequest, TokenResponse
-from shared.schemas.federation import ModelUpdate
+from shared.schemas.federation import FederationRound, ModelUpdate
 from shared.utils.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -78,9 +79,9 @@ log = get_logger(__name__)
 # Tuple of exception types that represent transient network failures.
 # Any exception in this tuple will trigger a retry in _request().
 _RETRYABLE: tuple[type[Exception], ...] = (
-    httpx.ConnectError,        # cannot reach the server
-    httpx.TimeoutException,    # server too slow to respond
-    httpx.RemoteProtocolError, # server closed connection unexpectedly
+    httpx.ConnectError,  # cannot reach the server
+    httpx.TimeoutException,  # server too slow to respond
+    httpx.RemoteProtocolError,  # server closed connection unexpectedly
 )
 
 
@@ -96,7 +97,7 @@ class FLClient:
         self.settings = get_client_settings()
 
         # Tokens start empty — call authenticate() before any FL operations
-        self._access_token  = ""
+        self._access_token = ""
         self._refresh_token = ""
 
         # Create a persistent httpx.Client with a connection pool.
@@ -164,7 +165,7 @@ class FLClient:
         RuntimeError — after retry_attempts all fail with transient errors
         Any non-retryable exception propagates immediately (e.g., ValueError)
         """
-        delay     = 2.0          # initial wait in seconds before first retry
+        delay = 2.0  # initial wait in seconds before first retry
         last_exc: Exception | None = None
 
         for attempt in range(1, self.settings.retry_attempts + 1):
@@ -182,7 +183,7 @@ class FLClient:
                 # Don't sleep after the last attempt — we're about to raise anyway
                 if attempt < self.settings.retry_attempts:
                     time.sleep(delay)
-                    delay *= 2   # double the wait time: 2s → 4s → 8s
+                    delay *= 2  # double the wait time: 2s → 4s → 8s
 
         # All attempts exhausted
         raise RuntimeError(
@@ -205,11 +206,11 @@ class FLClient:
             json=TokenRequest(
                 site_id=self.settings.site_id,
                 site_secret=self.settings.site_secret,
-            ).model_dump(),   # .model_dump() converts the Pydantic model to a plain dict
+            ).model_dump(),  # .model_dump() converts the Pydantic model to a plain dict
         )
-        resp.raise_for_status()   # raises httpx.HTTPStatusError on 4xx/5xx
+        resp.raise_for_status()  # raises httpx.HTTPStatusError on 4xx/5xx
         tokens = TokenResponse(**resp.json())
-        self._access_token  = tokens.access_token
+        self._access_token = tokens.access_token
         self._refresh_token = tokens.refresh_token
         log.info("authenticated", site=self.settings.site_id)
 
@@ -231,17 +232,19 @@ class FLClient:
         ----------
         update : ModelUpdate — the complete model update payload
         """
-        url  = f"{self.settings.server_url}/federation/update"
+        url = f"{self.settings.server_url}/federation/update"
         resp = self._request(
-            "POST", url,
-            json=update.model_dump(),    # convert Pydantic model to JSON-serialisable dict
+            "POST",
+            url,
+            json=update.model_dump(),  # convert Pydantic model to JSON-serialisable dict
             headers=self.auth_headers,
         )
         if resp.status_code == 401:
             # Token expired — refresh silently and retry ONCE
             self._do_refresh()
             resp = self._request(
-                "POST", url,
+                "POST",
+                url,
                 json=update.model_dump(),
                 headers=self.auth_headers,
             )
@@ -266,7 +269,27 @@ class FLClient:
             headers=self.auth_headers,
         )
         resp.raise_for_status()
-        return resp.json()   # type: ignore[no-any-return]
+        return resp.json()  # type: ignore[no-any-return]
+
+    def start_round(self) -> FederationRound:
+        """
+        POST to the server to begin a new FL federation round.
+
+        Returns the FederationRound describing the newly-started round.
+
+        AUTO-REFRESH ON 401
+        --------------------
+        If the access token has expired, refresh once silently and retry exactly once.
+        """
+        url = f"{self.settings.server_url}/federation/round/start"
+        resp = self._request("POST", url, headers=self.auth_headers)
+        if resp.status_code == 401:
+            self._do_refresh()
+            resp = self._request("POST", url, headers=self.auth_headers)
+        resp.raise_for_status()
+        result = FederationRound(**resp.json())
+        log.info("round_started", site=self.settings.site_id, round_id=result.round_id)
+        return result
 
     def _do_refresh(self) -> None:
         """
@@ -288,6 +311,6 @@ class FLClient:
         )
         resp.raise_for_status()
         tokens = TokenResponse(**resp.json())
-        self._access_token  = tokens.access_token
+        self._access_token = tokens.access_token
         self._refresh_token = tokens.refresh_token
         log.info("token_refreshed", site=self.settings.site_id)

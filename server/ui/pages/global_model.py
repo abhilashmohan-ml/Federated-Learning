@@ -44,22 +44,22 @@ class GlobalModelPage:
         return ft.Column([
             ft.Text("Global Consolidated Model", size=26, weight=ft.FontWeight.BOLD),
             ft.Text("Physics-Informed Neural Network — updated after each FL round",
-                    size=13, color=ft.colors.GREY_400),
+                    size=13, color=ft.Colors.GREY_400),
             ft.Divider(),
             ft.Row([
                 ft.Card(content=ft.Container(ft.Column([
-                    ft.Text("Model Version", size=12, color=ft.colors.GREY_500),
+                    ft.Text("Model Version", size=12, color=ft.Colors.GREY_500),
                     ft.Text("—", size=28, weight=ft.FontWeight.BOLD),
                 ], spacing=2), padding=14, width=130)),
                 ft.Card(content=ft.Container(ft.Column([
-                    ft.Text("Rounds Completed", size=12, color=ft.colors.GREY_500),
+                    ft.Text("Rounds Completed", size=12, color=ft.Colors.GREY_500),
                     ft.Text("—", size=28, weight=ft.FontWeight.BOLD),
                 ], spacing=2), padding=14, width=160)),
                 ft.Card(content=ft.Container(ft.Column([
-                    ft.Text("Sites Participated", size=12, color=ft.colors.GREY_500),
+                    ft.Text("Sites Participated", size=12, color=ft.Colors.GREY_500),
                     ft.Text("—", size=28, weight=ft.FontWeight.BOLD),
                 ], spacing=2), padding=14, width=155)),
             ], spacing=12),
             ft.Text("Current Global Parameters", size=17),
             table,
-        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16, padding=24)
+        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16)

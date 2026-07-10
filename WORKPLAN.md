@@ -53,8 +53,8 @@
   - [ ] All component widgets
 
 ## Phase 7: Client Flet UI  (Week 9)
-  - [ ] client/ui/app.py
-  - [ ] pages/status.py
+  - [x] client/ui/app.py — constructs FLClient, calls authenticate(), passes fl_client to StatusPage
+  - [x] pages/status.py — Trigger Manual Round button wired to FLClient.start_round() on daemon thread
   - [ ] pages/local_results.py
 
 ## Phase 8: Docker & Integration  (Week 10)
@@ -64,6 +64,33 @@
   - [ ] Notebook 04: full federated round simulation
   - [ ] scripts/run_simulation.py
   - [ ] scripts/visualise_results.py
+
+## Bug Fixes
+  - [x] fix(ui): migrate all Flet UI from deprecated `ft.colors.*`/`ft.icons.*` to
+         `ft.Colors.*`/`ft.Icons.*` required by Flet 0.85.3 — affects 11 files across
+         server/ui/ and client/ui/
+  - [x] feat(client): add FLClient.start_round() with 401-refresh-retry pattern;
+         StatusPage now requires fl_client: FLClient argument; Trigger Manual Round
+         button calls start_round() on a background daemon thread and updates
+         _round_text / _phase_text on completion; app.py constructs FLClient,
+         calls authenticate(), and passes it to StatusPage — branch fix/flet-colors-icons-api
+
+## Test Coverage
+  - [x] 100% line+branch coverage achieved for shared/ (all models, schemas, crypto, utils)
+        — 10 test files, 258+ test cases; commit 1fedd07
+  - [x] 100% line+branch coverage achieved for server/core/ (aggregator, round_manager,
+        model_registry) — async tests use asyncio.run(), singleton cache cleared in
+        try/finally; commit 1fedd07
+  - [x] 100% line+branch coverage achieved for client/engine/ (data_loader, local_trainer,
+        scheduler) — while-True loop broken via SystemExit on time.sleep; commit 1fedd07
+  - [x] Code review completed (Important findings resolved):
+        * Documented IndexError when all Hermia fitters fail (Finding 1)
+        * Added value assertions to missing-layer aggregation test (Finding 2)
+        * Added second-poll deduplication test for scheduler (Finding 3)
+        * Added complete local_metrics key assertions (Finding 6)
+  - NOTE: Production bug identified — local_trainer.train_and_prepare_update raises
+          IndexError if fit_all_models returns empty dict. Guard should be added in
+          Phase 9 hardening.
 
 ## Phase 9: Validation & Hardening  (Weeks 11-12)
   - [ ] Validate global model vs centralised baseline

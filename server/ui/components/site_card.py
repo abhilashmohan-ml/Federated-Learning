@@ -2,11 +2,11 @@
 import flet as ft
 
 STATUS_COLORS = {
-    "IDLE":      ft.colors.GREY,
-    "TRAINING":  ft.colors.BLUE,
-    "UPLOADING": ft.colors.ORANGE,
-    "DONE":      ft.colors.GREEN,
-    "ERROR":     ft.colors.RED,
+    "IDLE":      ft.Colors.GREY,
+    "TRAINING":  ft.Colors.BLUE,
+    "UPLOADING": ft.Colors.ORANGE,
+    "DONE":      ft.Colors.GREEN,
+    "ERROR":     ft.Colors.RED,
 }
 
 
@@ -19,14 +19,14 @@ class SiteCard:
         self.amin    = amin
 
     def build(self) -> ft.Control:
-        color = STATUS_COLORS.get(self.status, ft.colors.GREY)
+        color = STATUS_COLORS.get(self.status, ft.Colors.GREY)
         return ft.Card(
             content=ft.Container(
                 content=ft.Column([
                     ft.Text(self.site_id, size=15, weight=ft.FontWeight.BOLD),
                     ft.Text(self.status,  size=12, color=color),
-                    ft.Text(f"LRV: {self.lrv}", size=11, color=ft.colors.GREY_400),
-                    ft.Text(f"Amin: {self.amin} m2", size=11, color=ft.colors.GREY_400),
+                    ft.Text(f"LRV: {self.lrv}", size=11, color=ft.Colors.GREY_400),
+                    ft.Text(f"Amin: {self.amin} m2", size=11, color=ft.Colors.GREY_400),
                 ], spacing=3),
                 padding=14,
                 width=155,
