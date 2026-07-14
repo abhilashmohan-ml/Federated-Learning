@@ -66,6 +66,11 @@
   - [ ] scripts/visualise_results.py
 
 ## Bug Fixes
+  - [x] fix(client/config): port collision + 401 auth in dev multi-site mode —
+         `flet_client_port` and `site_secret` now auto-derived as `@computed_field`
+         from `SITE_ID`; only `SITE_ID` env var needed to launch any site client.
+         docker-compose.yml, .env.example, and docstrings updated to match.
+         14 new unit tests in client/tests/test_config.py — branch fix/flet-colors-icons-api
   - [x] fix(ui): migrate all Flet UI from deprecated `ft.colors.*`/`ft.icons.*` to
          `ft.Colors.*`/`ft.Icons.*` required by Flet 0.85.3 — affects 11 files across
          server/ui/ and client/ui/
