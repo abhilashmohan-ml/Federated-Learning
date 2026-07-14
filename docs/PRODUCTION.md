@@ -163,14 +163,15 @@ Edit `.env` on each site (example for site_1):
 ```ini
 SITE_ID=site_1
 SERVER_URL=https://fl-server.yourdomain.com   # or http://IP:8000 if no TLS
-SITE_SECRET=<same value as SITE_1_SECRET on server>
+# Port (8551) and site secret are auto-derived from SITE_ID — set only the
+# SITE_N_SECRET matching this site's number:
+SITE_1_SECRET=<same value as SITE_1_SECRET on server>
 VERIFY_SSL=true                               # false only for self-signed certs
 CONNECT_TIMEOUT=15
 REQUEST_TIMEOUT=90
 RETRY_ATTEMPTS=5
 
 LOCAL_DATA_PATH=/path/to/local/filtration.csv
-FLET_CLIENT_PORT=8551
 ```
 
 Generate synthetic data (first run only):

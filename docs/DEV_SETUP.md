@@ -131,20 +131,6 @@ SITE_5_SECRET=<6th secret>
 
 ---
 
-**Change 3 — `SITE_SECRET`**
-
-This is the active site secret used by the default client. Set it to the same value as `SITE_1_SECRET`. (When you start clients with `SITE_ID=site_2` etc., Docker injects the correct secret from `docker-compose.yml` automatically — this line is only the fallback.)
-
-```ini
-# Before:
-SITE_SECRET=CHANGE_ME_site1_secret
-
-# After (paste the same value you used for SITE_1_SECRET):
-SITE_SECRET=<your 2nd secret — identical to SITE_1_SECRET>
-```
-
----
-
 **That is all for Docker.** The `SERVER_DB_URL` and `SERVER_URL` lines already have correct Docker values (`postgresql+asyncpg://...@db:5432/...` and `http://server:8000`). Do not change them.
 
 #### Step 2c — Verify your `.env`
@@ -157,7 +143,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 keys = ['SERVER_SECRET_KEY','SITE_1_SECRET','SITE_2_SECRET',
-        'SITE_3_SECRET','SITE_4_SECRET','SITE_5_SECRET','SITE_SECRET']
+        'SITE_3_SECRET','SITE_4_SECRET','SITE_5_SECRET']
 all_ok = True
 for k in keys:
     v = os.getenv(k, 'MISSING')
@@ -376,7 +362,7 @@ a3f8c2e1d4b7a9f0e2c5d8b1a4f7c0e3d6b9a2f5c8e1d4b7a0f3c6e9d2b5a8f1
 
 Keep all 6 in a notepad — you will paste them below.
 
-#### Step 4b — Edit `.env`: the exact 6 changes for venv
+#### Step 4b — Edit `.env`: the exact 5 changes for venv
 
 Open `D:/viral_fl_project/.env` in your editor. Make exactly these changes, in order:
 
@@ -446,21 +432,7 @@ SERVER_URL=http://localhost:8000
 
 ---
 
-**Change 5 — `SITE_SECRET`**
-
-The default active site secret (used when no `SITE_ID`-specific override is set). Set it to the same value as `SITE_1_SECRET`.
-
-```ini
-# Before:
-SITE_SECRET=CHANGE_ME_site1_secret
-
-# After (paste the same value you used for SITE_1_SECRET):
-SITE_SECRET=<your 2nd secret — identical to SITE_1_SECRET>
-```
-
----
-
-**Change 6 — optional dev tuning (recommended)**
+**Change 5 — optional dev tuning (recommended)**
 
 These are not secrets — they are hyperparameters. Set them to smaller values so federation rounds complete quickly during dev:
 
@@ -493,7 +465,6 @@ checks = {
     'SITE_3_SECRET':     lambda v: v and 'CHANGE_ME' not in v,
     'SITE_4_SECRET':     lambda v: v and 'CHANGE_ME' not in v,
     'SITE_5_SECRET':     lambda v: v and 'CHANGE_ME' not in v,
-    'SITE_SECRET':       lambda v: v and 'CHANGE_ME' not in v,
 }
 
 all_ok = True
@@ -590,13 +561,83 @@ INFO  site_1 waiting for federation round
 
 ### Step 10 — Trigger a federation round
 
-With all 5 clients running, trigger a round via curl or the Swagger UI (same as Docker Step 5 above — replace Docker hostnames with `localhost`).
+Clients wait passively — you must start a round manually. The server authenticates via JWT, so you need a token first.
 
-Watch all 7 terminals simultaneously. You will see the round flow in real time:
-- Server terminal: `Round 1 started, waiting for 3+ sites`
-- Client terminals: `Training started — epoch 1/5 ...`
-- Server terminal: `3 updates received — running FedProx aggregation`
-- Server terminal: `Round 1 complete — new global model saved`
+#### Option A — curl (fastest)
+
+Open a new terminal (venv active) and run:
+
+```bash
+# 1. Authenticate as site_1 and capture the token
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/token \
+  -H "Content-Type: application/json" \
+  -d "{\"site_id\":\"site_1\",\"site_secret\":\"$(grep ^SITE_1_SECRET .env | cut -d= -f2-)\"}" \
+  | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+echo "Token: ${TOKEN:0:40}..."   # verify it printed something
+
+# 2. Start a federation round
+curl -s -X POST http://localhost:8000/federation/round/start \
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
+
+# 3. Poll round status (replace 1 with the round_id from the response above)
+curl -s http://localhost:8000/federation/round/1 \
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
+
+# 4. After the round completes, fetch the new global model
+curl -s http://localhost:8000/models/global-model \
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
+```
+
+**On Windows PowerShell** the `$(grep ...)` substitution won't work. Use the Swagger UI option below instead, or hardcode the secret:
+
+```powershell
+$TOKEN = (curl -s -X POST http://localhost:8000/auth/token `
+  -H "Content-Type: application/json" `
+  -d '{"site_id":"site_1","site_secret":"<your SITE_1_SECRET value>"}' `
+  | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+curl -s -X POST http://localhost:8000/federation/round/start `
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
+```
+
+#### Option B — Swagger UI (no terminal juggling)
+
+1. Open **http://localhost:8000/docs** in your browser
+2. Find **`POST /auth/token`** → click **Try it out** → paste:
+   ```json
+   { "site_id": "site_1", "site_secret": "<your SITE_1_SECRET value>" }
+   ```
+3. Click **Execute** → copy the `access_token` from the response body
+4. Click the **Authorize** padlock (top right) → enter `Bearer <token>` → **Authorize**
+5. Find **`POST /federation/round/start`** → **Try it out** → **Execute**
+6. Note the `round_id` in the response (usually `1` on the first run)
+7. Find **`GET /federation/round/{round_id}`** → enter `1` → **Execute** to poll status
+
+#### What to watch
+
+Switch between all 7 terminals while the round runs:
+
+| Terminal | Expected output |
+|----------|----------------|
+| Server (main.py) | `Round 1 started — broadcasting global model to 5 sites` |
+| Each site client | `Training started — epoch 1/5` … `epoch 5/5 done` |
+| Each site client | `Update uploaded — delta_W norm: 0.02x` |
+| Server (main.py) | `2 updates received — waiting for MIN_SITES_PER_ROUND` |
+| Server (main.py) | `Running FedProx weighted aggregation` |
+| Server (main.py) | `Round 1 COMPLETED — new global model saved (version 1)` |
+
+Round progress also appears live on the server dashboard at **http://localhost:8550**.
+
+A round completes when either:
+- `MIN_SITES_PER_ROUND` clients post their updates (default: 2 in dev `.env`)
+- `ROUND_TIMEOUT_SECONDS` elapses (default: 300 s) — whichever comes first
+
+To run **all FL rounds automatically** (no manual trigger per round), use the simulation script instead:
+
+```bash
+python scripts/run_simulation.py
+```
 
 ---
 
@@ -709,7 +750,7 @@ Below is the complete reference. Dev defaults are already set in `.env.example`.
 
 | Symptom | Most likely cause | Fix |
 |---------|-------------------|-----|
-| `Bad credentials` on `/auth/token` | `SITE_SECRET` in `.env` doesn't match `SITE_N_SECRET` | Re-check `.env` — both values must be identical plain text |
+| `Bad credentials` on `/auth/token` | `SITE_N_SECRET` in `.env` doesn't match what the server hashed during `init_db.py` | Re-check `.env` — delete `viral_fl.db` and re-run `init_db.py` if you changed secrets |
 | `No global model available yet` | No round has completed yet | Start a round via `POST /federation/round/start` |
 | `401 Unauthorized` mid-round | JWT expired (15 min lifetime) | The client auto-refreshes — if manual curl, re-run the auth step |
 | `create_all` error on DB init | Tables already exist from a previous run | Delete `viral_fl.db` and re-run `init_db.py`, or run `alembic upgrade head` |
