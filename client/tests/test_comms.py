@@ -762,3 +762,122 @@ class TestStartRound:
             site=fl.settings.site_id,
             round_id=5,
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FLClient — get_round_status
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestGetRoundStatus:
+    def test_returns_dict_on_200(self) -> None:
+        fl = _build_fl_client()
+        payload = _make_round_json(round_id=1, status="collecting")
+        resp = _mock_resp(200, payload)
+
+        with patch.object(fl, "_request", return_value=resp):
+            result = fl.get_round_status(1)
+
+        assert result == payload
+
+    def test_returns_none_on_404(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(404)
+
+        with patch.object(fl, "_request", return_value=resp):
+            result = fl.get_round_status(1)
+
+        assert result is None
+
+    def test_401_triggers_do_refresh_then_retries(self) -> None:
+        fl = _build_fl_client()
+        resp_401 = _mock_resp(401)
+        resp_200 = _mock_resp(200, _make_round_json())
+
+        with (
+            patch.object(fl, "_request", side_effect=[resp_401, resp_200]) as mock_req,
+            patch.object(fl, "_do_refresh") as mock_refresh,
+        ):
+            result = fl.get_round_status(1)
+
+        assert mock_req.call_count == 2
+        mock_refresh.assert_called_once()
+        assert result is not None
+
+    def test_no_refresh_on_200(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json())
+
+        with (
+            patch.object(fl, "_request", return_value=resp),
+            patch.object(fl, "_do_refresh") as mock_refresh,
+        ):
+            fl.get_round_status(1)
+
+        mock_refresh.assert_not_called()
+
+    def test_no_refresh_on_404(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(404)
+
+        with (
+            patch.object(fl, "_request", return_value=resp),
+            patch.object(fl, "_do_refresh") as mock_refresh,
+        ):
+            fl.get_round_status(1)
+
+        mock_refresh.assert_not_called()
+
+    def test_gets_correct_url_with_round_id(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json(round_id=7))
+
+        with patch.object(fl, "_request", return_value=resp) as mock_req:
+            fl.get_round_status(7)
+
+        args = mock_req.call_args.args
+        assert args[0] == "GET"
+        assert args[1] == "http://localhost:8000/federation/round/7"
+
+    def test_auth_headers_included(self) -> None:
+        fl = _build_fl_client()
+        fl._access_token = "round_tok"
+        resp = _mock_resp(200, _make_round_json())
+
+        with patch.object(fl, "_request", return_value=resp) as mock_req:
+            fl.get_round_status(1)
+
+        headers = mock_req.call_args.kwargs["headers"]
+        assert headers == {"Authorization": "Bearer round_tok"}
+
+    def test_calls_raise_for_status_on_success(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json())
+
+        with patch.object(fl, "_request", return_value=resp):
+            fl.get_round_status(1)
+
+        resp.raise_for_status.assert_called_once()
+
+    def test_raise_for_status_not_called_on_404(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(404)
+
+        with patch.object(fl, "_request", return_value=resp):
+            fl.get_round_status(1)
+
+        resp.raise_for_status.assert_not_called()
+
+    def test_401_then_404_returns_none(self) -> None:
+        """Token expired, refresh succeeds, but round doesn't exist yet → None."""
+        fl = _build_fl_client()
+        resp_401 = _mock_resp(401)
+        resp_404 = _mock_resp(404)
+
+        with (
+            patch.object(fl, "_request", side_effect=[resp_401, resp_404]),
+            patch.object(fl, "_do_refresh"),
+        ):
+            result = fl.get_round_status(1)
+
+        assert result is None

@@ -74,6 +74,12 @@
   - [x] fix(ui): migrate all Flet UI from deprecated `ft.colors.*`/`ft.icons.*` to
          `ft.Colors.*`/`ft.Icons.*` required by Flet 0.85.3 — affects 11 files across
          server/ui/ and client/ui/
+  - [x] fix(scheduler): 401 on GET /federation/round/N after token expiry —
+         added FLClient.get_round_status(round_id) with 401→_do_refresh()→retry;
+         scheduler _watch() now calls fl.get_round_status() instead of raw httpx.get();
+         removed unused httpx import and get_client_settings from scheduler;
+         10 new tests in TestGetRoundStatus, 7 TestWatch tests updated to mock
+         fl.get_round_status; 100% branch coverage maintained — branch fix/flet-colors-icons-api
   - [x] feat(client): add FLClient.start_round() with 401-refresh-retry pattern;
          StatusPage now requires fl_client: FLClient argument; Trigger Manual Round
          button calls start_round() on a background daemon thread and updates

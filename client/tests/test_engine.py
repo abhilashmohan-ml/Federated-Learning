@@ -1,7 +1,7 @@
 """Unit tests for client/engine — data_loader, local_trainer, scheduler. 100% coverage."""
 import csv
 import threading
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -230,52 +230,40 @@ class TestWatch:
         fl = MagicMock()
         if auth_raises:
             fl.authenticate.side_effect = Exception("auth failed")
-        fl.auth_headers = {"Authorization": "Bearer fake"}
         return fl
-
-    def _mock_resp(self, status: int = 200, data: dict | None = None) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = status
-        resp.json.return_value = data or {}
-        return resp
 
     def test_auth_failure_returns_early(self) -> None:
         fl = self._mock_fl(auth_raises=True)
         mock_trainer = MagicMock()
-        with patch("client.engine.scheduler.get_client_settings",
-                   return_value=_mock_client_settings()), \
-             patch("client.engine.scheduler.FLClient", return_value=fl), \
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
              patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer):
             _watch()
         fl.upload_update.assert_not_called()
         mock_trainer.train_and_prepare_update.assert_not_called()
 
-    def test_non_200_response_no_training(self) -> None:
+    def test_none_response_no_training(self) -> None:
+        """get_round_status returns None (404/not-yet-existing) → no training."""
         fl = self._mock_fl()
+        fl.get_round_status.return_value = None
         mock_trainer = MagicMock()
-        resp = self._mock_resp(status=404)
-        with patch("client.engine.scheduler.get_client_settings",
-                   return_value=_mock_client_settings()), \
-             patch("client.engine.scheduler.FLClient", return_value=fl), \
+
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
              patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.httpx.get", return_value=resp), \
              patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
             with pytest.raises(SystemExit):
                 _watch()
+
         mock_trainer.train_and_prepare_update.assert_not_called()
 
     def test_collecting_round_triggers_training_and_upload(self) -> None:
         fl = self._mock_fl()
+        fl.get_round_status.return_value = {"round_id": 1, "status": "collecting"}
         mock_update = MagicMock()
         mock_trainer = MagicMock()
         mock_trainer.train_and_prepare_update.return_value = mock_update
-        resp = self._mock_resp(data={"round_id": 1, "status": "collecting"})
 
-        with patch("client.engine.scheduler.get_client_settings",
-                   return_value=_mock_client_settings()), \
-             patch("client.engine.scheduler.FLClient", return_value=fl), \
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
              patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.httpx.get", return_value=resp), \
              patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
             with pytest.raises(SystemExit):
                 _watch()
@@ -286,14 +274,11 @@ class TestWatch:
     def test_already_seen_round_no_training(self) -> None:
         """round_id=0 <= last_seen_round=0 → no training."""
         fl = self._mock_fl()
+        fl.get_round_status.return_value = {"round_id": 0, "status": "collecting"}
         mock_trainer = MagicMock()
-        resp = self._mock_resp(data={"round_id": 0, "status": "collecting"})
 
-        with patch("client.engine.scheduler.get_client_settings",
-                   return_value=_mock_client_settings()), \
-             patch("client.engine.scheduler.FLClient", return_value=fl), \
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
              patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.httpx.get", return_value=resp), \
              patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
             with pytest.raises(SystemExit):
                 _watch()
@@ -303,14 +288,11 @@ class TestWatch:
     def test_non_collecting_status_no_training(self) -> None:
         """status="complete" → no training."""
         fl = self._mock_fl()
+        fl.get_round_status.return_value = {"round_id": 1, "status": "complete"}
         mock_trainer = MagicMock()
-        resp = self._mock_resp(data={"round_id": 1, "status": "complete"})
 
-        with patch("client.engine.scheduler.get_client_settings",
-                   return_value=_mock_client_settings()), \
-             patch("client.engine.scheduler.FLClient", return_value=fl), \
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
              patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.httpx.get", return_value=resp), \
              patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
             with pytest.raises(SystemExit):
                 _watch()
@@ -320,10 +302,9 @@ class TestWatch:
     def test_second_poll_same_round_no_retraining(self) -> None:
         """After training round 1, a second poll returning round_id=1 must not retrain."""
         fl = self._mock_fl()
+        fl.get_round_status.return_value = {"round_id": 1, "status": "collecting"}
         mock_trainer = MagicMock()
         mock_trainer.train_and_prepare_update.return_value = MagicMock()
-        # First poll: collecting → trains. Second poll: same round_id → skip.
-        poll_resp_collecting = self._mock_resp(data={"round_id": 1, "status": "collecting"})
         sleep_calls = {"count": 0}
 
         def sleep_side_effect(t):
@@ -331,14 +312,9 @@ class TestWatch:
             if sleep_calls["count"] >= 2:
                 raise SystemExit(0)
 
-        with patch("client.engine.scheduler.get_client_settings",
-                   return_value=_mock_client_settings()), \
-             patch("client.engine.scheduler.FLClient", return_value=fl), \
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
              patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.httpx.get",
-                   return_value=poll_resp_collecting), \
-             patch("client.engine.scheduler.time.sleep",
-                   side_effect=sleep_side_effect):
+             patch("client.engine.scheduler.time.sleep", side_effect=sleep_side_effect):
             with pytest.raises(SystemExit):
                 _watch()
 
@@ -346,18 +322,20 @@ class TestWatch:
         assert mock_trainer.train_and_prepare_update.call_count == 1
 
     def test_exception_in_loop_caught_warning_logged(self) -> None:
-        """Network error inside loop is caught; loop continues until sleep exits."""
+        """Network error inside loop is caught; warning logged; loop continues."""
         fl = self._mock_fl()
-        with patch("client.engine.scheduler.get_client_settings",
-                   return_value=_mock_client_settings()), \
-             patch("client.engine.scheduler.FLClient", return_value=fl), \
+        fl.get_round_status.side_effect = ConnectionError("unreachable")
+
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
              patch("client.engine.scheduler.LocalTrainer"), \
-             patch("client.engine.scheduler.httpx.get",
-                   side_effect=ConnectionError("unreachable")), \
+             patch("client.engine.scheduler.log") as mock_log, \
              patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
             with pytest.raises(SystemExit):
                 _watch()
-        # No exception propagated out of _watch (ConnectionError was caught)
+
+        mock_log.warning.assert_called_once_with(
+            "scheduler_poll_error", error="unreachable"
+        )
 
 
 # ── scheduler.start_scheduler ─────────────────────────────────────────────────

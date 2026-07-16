@@ -291,11 +291,36 @@ class FLClient:
         log.info("round_started", site=self.settings.site_id, round_id=result.round_id)
         return result
 
+    def get_round_status(self, round_id: int) -> dict[str, object] | None:
+        """
+        GET /federation/round/{round_id} — query current round status.
+
+        Returns the round dict, or None if round_id doesn't exist yet (404).
+
+        AUTO-REFRESH ON 401
+        --------------------
+        The access token expires after 15 minutes. On a 401 response, the
+        refresh token is exchanged for a new token pair and the request is
+        retried exactly once — the same pattern as upload_update() and
+        start_round(). This keeps the scheduler alive across long idle periods
+        without requiring a full re-authentication.
+        """
+        url = f"{self.settings.server_url}/federation/round/{round_id}"
+        resp = self._request("GET", url, headers=self.auth_headers)
+        if resp.status_code == 401:
+            self._do_refresh()
+            resp = self._request("GET", url, headers=self.auth_headers)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[no-any-return]
+
     def _do_refresh(self) -> None:
         """
         Exchange the current refresh token for a new access + refresh token pair.
 
-        This is called automatically by upload_update() on 401 responses.
+        This is called automatically by upload_update(), start_round(), and
+        get_round_status() on 401 responses.
         It implements the single-use refresh token rotation pattern:
           1. Send the current refresh token
           2. Server verifies + revokes it
