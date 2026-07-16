@@ -218,7 +218,7 @@ class TestSiteMonitorPage:
         ctrl = SiteMonitorPage(_mock_page()).build()
         col = ctrl.content
         dd = next(c for c in col.controls if isinstance(c, ft.Dropdown))
-        assert dd.value == "site_1"
+        assert dd.value == dd.options[0].key   # first option selected, not hardcoded
         assert len(dd.options) == 5
 
     def test_build_contains_metrics_row(self) -> None:

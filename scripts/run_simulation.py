@@ -10,11 +10,12 @@ Run from project root (after generate_synthetic_data.py):
 import os
 import numpy as np
 
-# Provide minimal env so configs don't fail
-os.environ.setdefault("SITE_ID",          "sim")
-os.environ.setdefault("SERVER_URL",       "http://localhost:8000")
-os.environ.setdefault("SITE_SECRET",      "secret_site_1")
-os.environ.setdefault("LOCAL_DATA_PATH",  "data/site_1/filtration.csv")
+# Provide minimal env so configs don't fail.
+# SITE_SECRET is no longer used — secrets are per-site via SITE_N_SECRET.
+# LOCAL_DATA_PATH is auto-derived from SITE_ID in client/config.py.
+os.environ.setdefault("SITE_ID",      "sim")
+os.environ.setdefault("SERVER_URL",   "http://localhost:8000")
+os.environ.setdefault("SITE_1_SECRET", "sim_secret")
 
 from shared.models.hermia       import fit_all_models, compute_flux_ratio, compute_amin
 from shared.crypto.noise        import add_gaussian_noise

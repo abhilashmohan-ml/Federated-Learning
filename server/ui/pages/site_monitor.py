@@ -10,10 +10,11 @@ class SiteMonitorPage:
         self.page = page
 
     def build(self) -> ft.Control:
+        site_options = [ft.dropdown.Option(f"site_{i}") for i in range(1, 6)]
         site_dd = ft.Dropdown(
             label="Select Site",
-            options=[ft.dropdown.Option(f"site_{i}") for i in range(1, 6)],
-            value="site_1",
+            options=site_options,
+            value=site_options[0].key if site_options else None,
             width=200,
         )
         metrics = ft.Row([
