@@ -212,7 +212,7 @@ server broadcasts global model → all sites train locally → sites push update
 1. Go to http://localhost:8000/docs
 2. Find `POST /auth/token` → click **Try it out** → fill in:
    ```json
-   { "site_id": "site_1", "site_secret": "<your SITE_1_SECRET value>" }
+   { "site_id": "site_1", "site_secret": "<paste the SITE_1_SECRET plain-text value from your .env>" }
    ```
 3. Click **Execute** → copy the `access_token` from the response
 4. Click **Authorize** (top right padlock) → paste `Bearer <token>`
@@ -606,8 +606,11 @@ curl -s -X POST http://localhost:8000/federation/round/start `
 1. Open **http://localhost:8000/docs** in your browser
 2. Find **`POST /auth/token`** → click **Try it out** → paste:
    ```json
-   { "site_id": "site_1", "site_secret": "<your SITE_1_SECRET value>" }
+   { "site_id": "site_1", "site_secret": "<paste the SITE_1_SECRET value from your .env file>" }
    ```
+   > **Which secret?** Open `.env` and copy the plain-text value on the `SITE_1_SECRET=...` line.
+   > This is the same string the server hashed with bcrypt during `init_db.py` — sending it
+   > here proves site_1's identity.
 3. Click **Execute** → copy the `access_token` from the response body
 4. Click the **Authorize** padlock (top right) → enter `Bearer <token>` → **Authorize**
 5. Find **`POST /federation/round/start`** → **Try it out** → **Execute**
