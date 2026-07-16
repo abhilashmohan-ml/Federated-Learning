@@ -41,7 +41,7 @@ NETWORK RESILIENCE SETTINGS
                    Retries use exponential backoff: 2s, 4s, 8s between attempts.
 """
 from functools import lru_cache
-from pydantic import computed_field
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -93,7 +93,14 @@ class ClientSettings(BaseSettings):
                                                 # Larger σ → more privacy, less accuracy
 
     # ── Data ────────────────────────────────────────────────────────────────────
-    local_data_path: str   = "./data/site_1/filtration.csv"  # NEVER sent to server
+    local_data_path: str   = ""   # auto-derived from site_id when empty; NEVER sent to server
+
+    @model_validator(mode="after")
+    def _derive_local_data_path(self) -> "ClientSettings":
+        """Set local_data_path to data/<site_id>/filtration.csv when not explicitly overridden."""
+        if not self.local_data_path:
+            self.local_data_path = f"data/{self.site_id}/filtration.csv"
+        return self
 
     # ── UI ──────────────────────────────────────────────────────────────────────
     @computed_field  # type: ignore[misc]

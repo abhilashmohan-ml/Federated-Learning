@@ -62,3 +62,31 @@ class TestSiteSecret:
             site_2_secret="wrong",
         )
         assert s.site_secret == "correct"
+
+
+# ── local_data_path ───────────────────────────────────────────────────────────
+
+
+class TestLocalDataPath:
+    """local_data_path is auto-derived from site_id when not explicitly set."""
+
+    @pytest.mark.parametrize("site_id,expected_path", [
+        ("site_1", "data/site_1/filtration.csv"),
+        ("site_2", "data/site_2/filtration.csv"),
+        ("site_3", "data/site_3/filtration.csv"),
+        ("site_4", "data/site_4/filtration.csv"),
+        ("site_5", "data/site_5/filtration.csv"),
+    ])
+    def test_path_derived_from_site_id(self, site_id: str, expected_path: str) -> None:
+        s = ClientSettings(site_id=site_id)
+        assert s.local_data_path == expected_path
+
+    def test_explicit_override_respected(self) -> None:
+        """When LOCAL_DATA_PATH is explicitly set, it is used as-is."""
+        s = ClientSettings(site_id="site_1", local_data_path="/data/filtration.csv")
+        assert s.local_data_path == "/data/filtration.csv"
+
+    def test_explicit_override_not_site_specific(self) -> None:
+        """Explicit path does not change when site_id changes — caller controls it."""
+        s = ClientSettings(site_id="site_3", local_data_path="/custom/path/data.csv")
+        assert s.local_data_path == "/custom/path/data.csv"

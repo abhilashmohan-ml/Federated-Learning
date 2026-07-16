@@ -74,6 +74,11 @@
   - [x] fix(ui): migrate all Flet UI from deprecated `ft.colors.*`/`ft.icons.*` to
          `ft.Colors.*`/`ft.Icons.*` required by Flet 0.85.3 — affects 11 files across
          server/ui/ and client/ui/
+  - [x] fix(client/config): LOCAL_DATA_PATH wrong for venv dev mode — path now
+         auto-derived from SITE_ID (site_1→data/site_1/filtration.csv, etc.) via
+         model_validator; LOCAL_DATA_PATH commented out of .env/.env.example;
+         Docker compose retains explicit per-container override; 8 new tests —
+         branch fix/flet-colors-icons-api
   - [x] fix(scheduler): 401 on GET /federation/round/N after token expiry —
          added FLClient.get_round_status(round_id) with 401→_do_refresh()→retry;
          scheduler _watch() now calls fl.get_round_status() instead of raw httpx.get();
