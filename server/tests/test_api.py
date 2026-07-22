@@ -637,3 +637,100 @@ class TestRevokeToken:
         r = asyncio.run(_run())
         assert r.status_code == 200
         assert r.json() == {"status": "revoked"}
+
+
+# ══ GET /internal/status ══════════════════════════════════════════════════════
+
+class TestInternalStatus:
+    def _snap(self, **overrides) -> dict:
+        base = {
+            "current_round_id": 0,
+            "round_status": "idle",
+            "sites": {f"site_{i}": "idle" for i in range(1, 6)},
+            "model_version": 0,
+            "participating_sites": [],
+        }
+        base.update(overrides)
+        return base
+
+    def test_no_auth_required_returns_200(self) -> None:
+        rm = _mock_rm()
+        rm.get_status_snapshot = AsyncMock(return_value=self._snap())
+        try:
+            app.dependency_overrides[get_round_manager] = lambda: rm
+
+            async def _run():
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    return await client.get("/internal/status")  # no Authorization header
+
+            r = asyncio.run(_run())
+            assert r.status_code == 200
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_response_shape_correct(self) -> None:
+        rm = _mock_rm()
+        rm.get_status_snapshot = AsyncMock(return_value=self._snap())
+        try:
+            app.dependency_overrides[get_round_manager] = lambda: rm
+
+            async def _run():
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    return await client.get("/internal/status")
+
+            body = asyncio.run(_run()).json()
+            assert "current_round_id" in body
+            assert "round_status" in body
+            assert "sites" in body
+            assert "model_version" in body
+            assert "participating_sites" in body
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_idle_state_values(self) -> None:
+        rm = _mock_rm()
+        rm.get_status_snapshot = AsyncMock(return_value=self._snap())
+        try:
+            app.dependency_overrides[get_round_manager] = lambda: rm
+
+            async def _run():
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    return await client.get("/internal/status")
+
+            body = asyncio.run(_run()).json()
+            assert body["current_round_id"] == 0
+            assert body["round_status"] == "idle"
+            assert body["model_version"] == 0
+            assert body["participating_sites"] == []
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_collecting_state_values(self) -> None:
+        rm = _mock_rm()
+        rm.get_status_snapshot = AsyncMock(return_value=self._snap(
+            current_round_id=1,
+            round_status="collecting",
+            sites={"site_1": "training", "site_2": "idle",
+                   "site_3": "idle", "site_4": "idle", "site_5": "idle"},
+        ))
+        try:
+            app.dependency_overrides[get_round_manager] = lambda: rm
+
+            async def _run():
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    return await client.get("/internal/status")
+
+            body = asyncio.run(_run()).json()
+            assert body["current_round_id"] == 1
+            assert body["round_status"] == "collecting"
+            assert body["sites"]["site_1"] == "training"
+        finally:
+            app.dependency_overrides.clear()
