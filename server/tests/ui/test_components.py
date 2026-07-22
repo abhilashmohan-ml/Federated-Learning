@@ -30,37 +30,38 @@ class TestSiteCard:
     def test_init_defaults(self) -> None:
         card = SiteCard("site_1")
         assert card.site_id == "site_1"
-        assert card.status  == "IDLE"
-        assert card.lrv     == "--"
-        assert card.amin    == "--"
+        assert card._status_text.value == "IDLE"
 
     def test_init_custom(self) -> None:
-        card = SiteCard("site_2", status="TRAINING", lrv="4.8", amin="0.12")
-        assert card.status == "TRAINING"
-        assert card.lrv    == "4.8"
-        assert card.amin   == "0.12"
+        card = SiteCard("site_2")
+        card.set_status("TRAINING")
+        assert card._status_text.value == "TRAINING"
 
     def test_build_returns_card(self) -> None:
         assert isinstance(SiteCard("site_1").build(), ft.Card)
 
     @pytest.mark.parametrize("status", ["IDLE", "TRAINING", "UPLOADING", "DONE", "ERROR"])
     def test_build_known_statuses(self, status: str) -> None:
-        assert isinstance(SiteCard("site_1", status=status).build(), ft.Card)
+        card = SiteCard("site_1")
+        card.set_status(status)
+        assert isinstance(card.build(), ft.Card)
 
     def test_build_unknown_status_falls_back_to_grey(self) -> None:
-        # branch: STATUS_COLORS.get(self.status, ft.Colors.GREY) for unknown key
-        assert isinstance(SiteCard("site_1", status="UNKNOWN").build(), ft.Card)
+        # branch: STATUS_COLORS.get(upper, ft.Colors.GREY) for unknown key
+        card = SiteCard("site_1")
+        card.set_status("UNKNOWN")
+        assert card._status_text.color == ft.Colors.GREY
 
     def test_build_site_id_in_text(self) -> None:
-        col = SiteCard("site_3", lrv="5.1", amin="0.25").build().content.content
+        col = SiteCard("site_3").build().content.content
         texts = [c.value for c in col.controls if isinstance(c, ft.Text)]
         assert "site_3" in texts
 
     def test_build_lrv_amin_in_text(self) -> None:
-        col = SiteCard("site_1", lrv="4.9", amin="0.30").build().content.content
+        col = SiteCard("site_1").build().content.content
         texts = [c.value for c in col.controls if isinstance(c, ft.Text)]
-        assert any("4.9" in v for v in texts)
-        assert any("0.30" in v for v in texts)
+        assert any("LRV: --" in v for v in texts)
+        assert any("Amin: -- m2" in v for v in texts)
 
 
 # ---------------------------------------------------------------------------
@@ -257,28 +258,30 @@ class TestBuildNavRail:
 class TestRoundTimeline:
     def test_init_defaults(self) -> None:
         rt = RoundTimeline()
-        assert rt.current_round == 1
-        assert rt.total_rounds  == 50
-        assert len(rt.site_statuses) == 5
+        assert rt.total_rounds == 50
+        assert rt._progress.value == 0.0
 
     def test_init_default_site_statuses_all_idle(self) -> None:
-        assert all(v == "IDLE" for v in RoundTimeline().site_statuses.values())
+        rt = RoundTimeline()
+        rt.build()
+        assert rt._chips_row.controls == []
 
     def test_init_custom(self) -> None:
-        statuses = {"site_1": "DONE", "site_2": "TRAINING"}
-        rt = RoundTimeline(current_round=10, total_rounds=50, site_statuses=statuses)
-        assert rt.current_round == 10
-        assert rt.site_statuses == statuses
+        rt = RoundTimeline(total_rounds=30)
+        rt.update(10, {"site_1": "done"})
+        assert rt._progress.value == pytest.approx(10 / 30)
 
     def test_init_none_site_statuses_generates_defaults(self) -> None:
-        rt = RoundTimeline(site_statuses=None)
-        assert set(rt.site_statuses.keys()) == {f"site_{i}" for i in range(1, 6)}
+        rt = RoundTimeline(total_rounds=100)
+        assert rt.total_rounds == 100
 
     def test_build_returns_column(self) -> None:
         assert isinstance(RoundTimeline().build(), ft.Column)
 
     def test_build_progress_bar_value(self) -> None:
-        col = RoundTimeline(current_round=25, total_rounds=50).build()
+        rt = RoundTimeline(50)
+        rt.update(25, {})
+        col = rt.build()
         bar = next(c for c in col.controls if isinstance(c, ft.ProgressBar))
         assert bar.value == pytest.approx(0.5)
 
@@ -288,7 +291,8 @@ class TestRoundTimeline:
         assert bar.color == ft.Colors.BLUE
 
     def test_build_chip_bgcolor_done_is_blue(self) -> None:
-        rt = RoundTimeline(site_statuses={"site_1": "DONE"})
+        rt = RoundTimeline()
+        rt.update(1, {"site_1": "done"})
         col = rt.build()
         # status_chips Row is the last control (after header Row and ProgressBar)
         chip_row = col.controls[2]
@@ -296,13 +300,16 @@ class TestRoundTimeline:
         assert chip_row.controls[0].bgcolor == ft.Colors.BLUE
 
     def test_build_chip_bgcolor_non_done_is_grey_800(self) -> None:
-        rt = RoundTimeline(site_statuses={"site_1": "TRAINING"})
+        rt = RoundTimeline()
+        rt.update(1, {"site_1": "training"})
         col = rt.build()
         chip_row = col.controls[2]
         assert chip_row.controls[0].bgcolor == ft.Colors.GREY_800
 
     def test_build_total_rounds_zero_no_division_error(self) -> None:
         # max(total_rounds, 1) guards against ZeroDivisionError
-        col = RoundTimeline(current_round=0, total_rounds=0).build()
+        rt = RoundTimeline(0)
+        rt.update(0, {})
+        col = rt.build()
         bar = next(c for c in col.controls if isinstance(c, ft.ProgressBar))
         assert bar.value == pytest.approx(0.0)

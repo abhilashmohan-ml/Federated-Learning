@@ -121,7 +121,7 @@ class TestMainPageProperties:
         with patch(_DASH), patch(_SITE), patch(_GLOBAL), \
              patch(_GRAPHS), patch(_SETTINGS), patch(_NAV):
             main(page)
-        assert page.title == "Viral FL — Server Dashboard"
+        assert page.title == "Viral FL - Server Dashboard"
 
     def test_theme_mode_dark(self) -> None:
         page = _page()
