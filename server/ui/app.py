@@ -9,21 +9,27 @@ Pages
 3  Graphs         comparative charts across all sites
 4  Settings       server config + site management
 """
-import flet as ft
+import asyncio
 
+import flet as ft
+import httpx
+
+from server.config import get_settings
 from server.ui.pages.dashboard    import DashboardPage
 from server.ui.pages.site_monitor import SiteMonitorPage
 from server.ui.pages.global_model import GlobalModelPage
 from server.ui.pages.graphs       import GraphsPage
 from server.ui.pages.settings     import SettingsPage
 from server.ui.components.nav_rail import build_nav_rail
-from server.config import get_settings
 
 
 def main(page: ft.Page) -> None:
-    page.title      = "Viral FL — Server Dashboard"
+    page.title      = "Viral FL - Server Dashboard"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding    = 0
+
+    settings = get_settings()
+    poll_url = f"http://localhost:{settings.port}/internal/status"
 
     pages = [
         DashboardPage(page),
@@ -44,6 +50,44 @@ def main(page: ft.Page) -> None:
             expand=True,
         )
     )
+
+    running = [True]
+
+    def on_disconnect(_: ft.ControlEvent) -> None:
+        running[0] = False
+
+    page.on_disconnect = on_disconnect
+
+    async def poll_loop() -> None:
+        dashboard: DashboardPage  = pages[0]
+        gm_page:   GlobalModelPage = pages[2]
+        last_model_version = -1
+
+        async with httpx.AsyncClient() as client:
+            while running[0]:
+                await asyncio.sleep(5)
+                try:
+                    r = await client.get(poll_url, timeout=4.0)
+                    if r.status_code == 200:
+                        data   = r.json()
+                        sites  = data.get("sites", {})
+                        mv     = data.get("model_version", 0)
+                        rid    = data.get("current_round_id", 0)
+                        n_done = len(data.get("participating_sites", []))
+
+                        for card in dashboard.cards:
+                            card.set_status(sites.get(card.site_id, "idle"))
+                        dashboard.timeline.update(rid, sites)
+
+                        if mv != last_model_version:
+                            last_model_version = mv
+                            gm_page.update_tiles(mv, rid, n_done)
+
+                        page.update()
+                except Exception:
+                    pass  # server unreachable — retry on next tick
+
+    page.run_task(poll_loop)
 
 
 if __name__ == "__main__":
