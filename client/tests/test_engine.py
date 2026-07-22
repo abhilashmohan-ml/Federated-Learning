@@ -355,9 +355,6 @@ class TestStartScheduler:
 
 # ── TrainingState ─────────────────────────────────────────────────────────────
 
-import dataclasses as _dc
-
-
 class TestTrainingState:
     def setup_method(self) -> None:
         """Reset shared state to defaults before each test."""
@@ -426,3 +423,10 @@ class TestTrainingState:
 
         assert errors == [], f"Thread safety violation: {errors}"
         assert get_state().current_round_id in range(6)
+
+    def test_update_no_args_is_noop(self) -> None:
+        from client.engine.state import get_state, update_state
+        update_state(phase="training")
+        before = get_state().phase
+        update_state()  # empty kwargs — must be a no-op
+        assert get_state().phase == before
