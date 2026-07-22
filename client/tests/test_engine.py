@@ -430,3 +430,96 @@ class TestTrainingState:
         before = get_state().phase
         update_state()  # empty kwargs — must be a no-op
         assert get_state().phase == before
+
+
+# ── scheduler state updates ───────────────────────────────────────────────────
+
+class TestWatchStateUpdates:
+    """Verify _watch() calls update_state() at the correct phase transitions."""
+
+    def _mock_fl(self) -> MagicMock:
+        fl = MagicMock()
+        return fl
+
+    def _mock_update(self) -> MagicMock:
+        u = MagicMock()
+        u.local_metrics = {"flux_ratio": 0.88, "amin_m2": 0.04}
+        u.hermia_best_model = "combined_1a"
+        return u
+
+    def test_training_phase_set_before_train_call(self) -> None:
+        fl = self._mock_fl()
+        fl.get_round_status.return_value = {"round_id": 1, "status": "collecting"}
+        mock_trainer = MagicMock()
+        mock_trainer.train_and_prepare_update.return_value = self._mock_update()
+        calls: list[dict] = []
+
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
+             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
+             patch("client.engine.scheduler.update_state", side_effect=lambda **kw: calls.append(kw)), \
+             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
+            with pytest.raises(SystemExit):
+                _watch()
+
+        phases = [c["phase"] for c in calls if "phase" in c]
+        assert "training" in phases
+        training_idx = phases.index("training")
+        # training phase must appear before done
+        assert "done" in phases
+        done_idx = phases.index("done")
+        assert training_idx < done_idx
+
+    def test_done_phase_carries_metrics(self) -> None:
+        fl = self._mock_fl()
+        fl.get_round_status.return_value = {"round_id": 2, "status": "collecting"}
+        mock_trainer = MagicMock()
+        update = self._mock_update()
+        mock_trainer.train_and_prepare_update.return_value = update
+        calls: list[dict] = []
+
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
+             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
+             patch("client.engine.scheduler.update_state", side_effect=lambda **kw: calls.append(kw)), \
+             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
+            with pytest.raises(SystemExit):
+                _watch()
+
+        done_call = next((c for c in calls if c.get("phase") == "done"), None)
+        assert done_call is not None
+        assert done_call.get("last_hermia_model") == "combined_1a"
+        assert done_call.get("last_flux_ratio") == pytest.approx(0.88)
+        assert done_call.get("last_amin") == pytest.approx(0.04)
+        assert done_call.get("last_round_completed") == 2
+
+    def test_error_phase_set_on_exception(self) -> None:
+        fl = self._mock_fl()
+        fl.get_round_status.side_effect = ConnectionError("unreachable")
+        calls: list[dict] = []
+
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
+             patch("client.engine.scheduler.LocalTrainer"), \
+             patch("client.engine.scheduler.update_state", side_effect=lambda **kw: calls.append(kw)), \
+             patch("client.engine.scheduler.log"), \
+             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
+            with pytest.raises(SystemExit):
+                _watch()
+
+        assert any(c.get("phase") == "error" for c in calls)
+
+    def test_uploading_phase_set_before_upload(self) -> None:
+        fl = self._mock_fl()
+        fl.get_round_status.return_value = {"round_id": 1, "status": "collecting"}
+        mock_trainer = MagicMock()
+        mock_trainer.train_and_prepare_update.return_value = self._mock_update()
+        calls: list[dict] = []
+
+        with patch("client.engine.scheduler.FLClient", return_value=fl), \
+             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
+             patch("client.engine.scheduler.update_state", side_effect=lambda **kw: calls.append(kw)), \
+             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
+            with pytest.raises(SystemExit):
+                _watch()
+
+        phases = [c["phase"] for c in calls if "phase" in c]
+        assert "uploading" in phases
+        assert phases.index("uploading") < phases.index("done")

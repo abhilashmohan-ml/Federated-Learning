@@ -51,6 +51,7 @@ import threading
 
 from client.comms.fl_client      import FLClient
 from client.engine.local_trainer  import LocalTrainer
+from client.engine.state          import update_state
 from shared.utils.logging_config  import get_logger
 
 log = get_logger(__name__)
@@ -97,18 +98,23 @@ def _watch() -> None:
                 if rid > last_seen_round and status == "collecting":
                     log.info("new_round", round_id=rid)
 
-                    # Run local training — loads data, fits Hermia models, applies DP noise
+                    update_state(phase="training", current_round_id=rid)
                     update = trainer.train_and_prepare_update(rid)
 
-                    # FLClient handles token refresh internally on 401
+                    update_state(phase="uploading")
                     fl.upload_update(update)
 
-                    last_seen_round = rid   # mark this round as handled
+                    update_state(
+                        phase="done",
+                        last_round_completed=rid,
+                        last_flux_ratio=update.local_metrics.get("flux_ratio"),
+                        last_amin=update.local_metrics.get("amin_m2"),
+                        last_hermia_model=update.hermia_best_model,
+                    )
+                    last_seen_round = rid
 
         except Exception as exc:
-            # Catch all exceptions to prevent the polling loop from dying.
-            # Common causes: server unavailable, network timeout, parse error.
-            # We log a warning and continue — the next poll iteration will retry.
+            update_state(phase="error")
             log.warning("scheduler_poll_error", error=str(exc))
 
         # Wait before the next poll.
