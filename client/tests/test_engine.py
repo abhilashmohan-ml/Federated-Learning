@@ -351,3 +351,78 @@ class TestStartScheduler:
 
     def test_poll_seconds_constant(self) -> None:
         assert POLL_SECONDS == 15
+
+
+# ── TrainingState ─────────────────────────────────────────────────────────────
+
+import dataclasses as _dc
+
+
+class TestTrainingState:
+    def setup_method(self) -> None:
+        """Reset shared state to defaults before each test."""
+        from client.engine import state as _s
+        _s.update_state(
+            current_round_id=0, phase="idle",
+            last_lrv=None, last_amin=None,
+            last_flux_ratio=None, last_hermia_model=None,
+            last_round_completed=0,
+        )
+
+    def test_initial_defaults(self) -> None:
+        from client.engine.state import get_state
+        s = get_state()
+        assert s.current_round_id == 0
+        assert s.phase == "idle"
+        assert s.last_lrv is None
+        assert s.last_amin is None
+        assert s.last_flux_ratio is None
+        assert s.last_hermia_model is None
+        assert s.last_round_completed == 0
+
+    def test_update_single_field(self) -> None:
+        from client.engine.state import get_state, update_state
+        update_state(current_round_id=7)
+        assert get_state().current_round_id == 7
+
+    def test_update_multiple_fields(self) -> None:
+        from client.engine.state import get_state, update_state
+        update_state(phase="training", last_lrv=4.2, last_amin=0.05)
+        s = get_state()
+        assert s.phase == "training"
+        assert s.last_lrv == pytest.approx(4.2)
+        assert s.last_amin == pytest.approx(0.05)
+
+    def test_get_state_returns_snapshot_not_reference(self) -> None:
+        """Mutating the snapshot must not affect shared state."""
+        from client.engine.state import get_state
+        snap = get_state()
+        snap.phase = "mutated"
+        assert get_state().phase != "mutated"
+
+    def test_all_phase_transitions(self) -> None:
+        from client.engine.state import get_state, update_state
+        for phase in ("idle", "training", "uploading", "done", "error"):
+            update_state(phase=phase)
+            assert get_state().phase == phase
+
+    def test_thread_safety_concurrent_writes(self) -> None:
+        from client.engine.state import get_state, update_state
+        errors: list[Exception] = []
+
+        def writer(val: int) -> None:
+            try:
+                for _ in range(200):
+                    update_state(current_round_id=val)
+                    get_state()
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=writer, args=(i,)) for i in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"Thread safety violation: {errors}"
+        assert get_state().current_round_id in range(6)
