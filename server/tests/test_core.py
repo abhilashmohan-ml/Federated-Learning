@@ -412,3 +412,51 @@ class TestGetRoundManager:
             assert rm1 is rm2
         finally:
             get_round_manager.cache_clear()
+
+
+# ── get_status_snapshot ───────────────────────────────────────────────────────
+
+class TestGetStatusSnapshot:
+    def test_no_rounds_returns_idle_defaults(self) -> None:
+        async def _run() -> dict:
+            from server.core.round_manager import RoundManager
+            rm = RoundManager()
+            return await rm.get_status_snapshot()
+
+        snap = asyncio.run(_run())
+        assert snap["current_round_id"] == 0
+        assert snap["round_status"] == "idle"
+        assert snap["model_version"] == 0
+        assert snap["participating_sites"] == []
+        assert isinstance(snap["sites"], dict)
+        assert len(snap["sites"]) == 5  # site_1 … site_5
+
+    def test_after_round_start_returns_collecting(self) -> None:
+        async def _run() -> dict:
+            from server.core.round_manager import RoundManager
+            rm = RoundManager()
+            await rm.start_new_round()
+            return await rm.get_status_snapshot()
+
+        snap = asyncio.run(_run())
+        assert snap["current_round_id"] == 1
+        assert snap["round_status"] == "collecting"
+        assert snap["participating_sites"] == []
+
+    def test_after_update_received_site_appears_in_participating(self) -> None:
+        async def _run() -> dict:
+            from server.core.round_manager import RoundManager
+            from shared.schemas.federation import ModelUpdate
+            rm = RoundManager()
+            await rm.start_new_round()
+            update = ModelUpdate(
+                site_id="site_1", round_id=1, n_samples=10,
+                delta_W={"layer": [0.1]},
+            )
+            # Override min_sites so aggregation doesn't fire immediately
+            rm._settings.min_sites_per_round = 99
+            await rm.receive_update(update)
+            return await rm.get_status_snapshot()
+
+        snap = asyncio.run(_run())
+        assert "site_1" in snap["participating_sites"]

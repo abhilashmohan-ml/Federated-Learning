@@ -249,6 +249,22 @@ class RoundManager:
         """
         return {k: v.value for k, v in self._site_statuses.items()}
 
+    async def get_status_snapshot(self) -> dict[str, object]:
+        """
+        Return a flat dict of current server state for the internal dashboard endpoint.
+
+        Called by GET /internal/status — no authentication required on that route
+        because this method only reads state; it never mutates anything.
+        """
+        round_ = self._rounds.get(self._current_round_id)
+        return {
+            "current_round_id": self._current_round_id,
+            "round_status":      round_.status.value if round_ else "idle",
+            "sites":             await self.get_site_statuses(),
+            "model_version":     self._model_version,
+            "participating_sites": list(round_.participating_sites) if round_ else [],
+        }
+
     @property
     def current_global_weights(self) -> Dict[str, List[float]]:
         """
