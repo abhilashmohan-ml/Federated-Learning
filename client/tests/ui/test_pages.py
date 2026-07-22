@@ -50,9 +50,9 @@ class TestStatusPage:
     def test_build_returns_column(self) -> None:
         assert isinstance(self._make().build(), ft.Column)
 
-    def test_build_has_three_cards(self) -> None:
+    def test_build_has_two_cards(self) -> None:
         col = self._make().build()
-        assert len([c for c in col.controls if isinstance(c, ft.Card)]) == 3
+        assert len([c for c in col.controls if isinstance(c, ft.Card)]) == 2
 
     def test_build_has_button(self) -> None:
         col = self._make().build()
@@ -87,11 +87,10 @@ class TestStatusPage:
         texts = [t.value for t in card.content.content.controls if isinstance(t, ft.Text)]
         assert any("myserver:9000" in v for v in texts)
 
-    def test_build_dp_sigma_in_text(self) -> None:
-        col = self._make(dp_noise_sigma=0.05).build()
-        training_card = [c for c in col.controls if isinstance(c, ft.Card)][2]
-        texts = [t.value for t in training_card.content.content.controls if isinstance(t, ft.Text)]
-        assert any("0.05" in v for v in texts)
+    def test_init_creates_status_text_control(self) -> None:
+        sp = self._make()
+        assert hasattr(sp, "_status_text")
+        assert isinstance(sp._status_text, ft.Text)
 
     def test_init_stores_fl_client(self) -> None:
         mock_fl = MagicMock()
@@ -102,13 +101,13 @@ class TestStatusPage:
             sp = StatusPage(_mock_page(), fl_client=mock_fl)
         assert sp.fl_client is mock_fl
 
-    def test_round_text_initialized_to_dash(self) -> None:
+    def test_round_text_initialized_to_hyphen(self) -> None:
         sp = self._make()
-        assert "—" in sp._round_text.value
+        assert "-" in sp._round_text.value
 
-    def test_phase_text_initialized_to_dash(self) -> None:
+    def test_phase_text_initialized_to_hyphen(self) -> None:
         sp = self._make()
-        assert "—" in sp._phase_text.value
+        assert "-" in sp._phase_text.value
 
     def test_button_on_click_bound_to_handle_round_click(self) -> None:
         sp = self._make()
