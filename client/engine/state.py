@@ -30,6 +30,9 @@ def get_state() -> TrainingState:
 
 def update_state(**kwargs: object) -> None:
     """Update one or more fields in the shared training state (thread-safe)."""
+    valid_fields = {f.name for f in dataclasses.fields(_state)}
     with _lock:
         for key, value in kwargs.items():
+            if key not in valid_fields:
+                raise AttributeError(f"TrainingState has no field {key!r}")
             setattr(_state, key, value)

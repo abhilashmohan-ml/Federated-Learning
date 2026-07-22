@@ -15,6 +15,9 @@ import flet as ft
 import httpx
 
 from server.config import get_settings
+from shared.utils.logging_config import get_logger
+
+log = get_logger(__name__)
 from server.ui.pages.dashboard    import DashboardPage
 from server.ui.pages.site_monitor import SiteMonitorPage
 from server.ui.pages.global_model import GlobalModelPage
@@ -84,8 +87,15 @@ def main(page: ft.Page) -> None:
                             gm_page.update_tiles(mv, rid, n_done)
 
                         page.update()
-                except Exception:
-                    pass  # server unreachable — retry on next tick
+                except Exception as exc:
+                    log.warning("dashboard_poll_error", error=str(exc))
+                    dashboard.timeline._chips_row.controls = [
+                        ft.Chip(
+                            label=ft.Text("Server unreachable", size=11, color=ft.Colors.WHITE),
+                            bgcolor=ft.Colors.RED,
+                        )
+                    ]
+                    page.update()
 
     page.run_task(poll_loop)
 

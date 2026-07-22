@@ -259,8 +259,8 @@ class RoundManager:
         round_ = self._rounds.get(self._current_round_id)
         return {
             "current_round_id": self._current_round_id,
-            "round_status":      round_.status.value if round_ else "idle",
-            "sites":             await self.get_site_statuses(),
+            "round_status": round_.status.value if round_ else "idle",
+            "sites": await self.get_site_statuses(),
             "model_version":     self._model_version,
             "participating_sites": list(round_.participating_sites) if round_ else [],
         }

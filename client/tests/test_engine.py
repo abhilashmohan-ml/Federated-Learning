@@ -431,6 +431,11 @@ class TestTrainingState:
         update_state()  # empty kwargs — must be a no-op
         assert get_state().phase == before
 
+    def test_update_invalid_field_raises(self) -> None:
+        from client.engine.state import update_state
+        with pytest.raises(AttributeError, match="has no field"):
+            update_state(nonexistent_field=99)
+
 
 # ── scheduler state updates ───────────────────────────────────────────────────
 

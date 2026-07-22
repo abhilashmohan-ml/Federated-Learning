@@ -6,6 +6,9 @@ import asyncio
 import flet as ft
 
 from client.comms.fl_client import FLClient
+from shared.utils.logging_config import get_logger
+
+log = get_logger(__name__)
 from client.config import get_client_settings
 from client.engine.state import get_state
 from client.ui.pages.local_results import LocalResultsPage
@@ -59,7 +62,7 @@ def main(page: ft.Page) -> None:
                 status_pg.update_from_state(state)
                 results_pg.update_from_state(state)
                 page.update()
-            except Exception:
-                pass  # UI not yet fully mounted; retry next tick
+            except Exception as exc:
+                log.warning("client_poll_error", error=str(exc))
 
     page.run_task(poll_loop)

@@ -16,6 +16,8 @@ class LocalResultsPage:
 
     def update_from_state(self, state: TrainingState) -> None:
         """Refresh metric tiles from a TrainingState snapshot. Called by poll loop."""
+        # last_lrv remains None until LRV extraction via Manabe model is implemented
+        # (same scope note as GlobalModelPage parameter table — see design spec Section 3)
         self._lrv_text.value = (
             f"{state.last_lrv:.3f}" if state.last_lrv is not None else "-"
         )
