@@ -244,6 +244,48 @@ python scripts/run_simulation.py
 python scripts/visualise_results.py
 ```
 
+### Windows PowerShell scripts — one-command launch and teardown
+
+Two scripts are provided for Windows developers to avoid managing 7 separate terminals manually.
+
+#### `start_all_server_clients_dev.ps1` — launch everything
+
+```powershell
+.\start_all_server_clients_dev.ps1
+```
+
+What it does:
+1. Frees ports 8000 and 8550–8555 (kills any process holding them)
+2. Opens **7 colour-coded PowerShell windows** — each runs a component and stays open for log watching:
+
+| Window title | Colour | Process |
+|---|---|---|
+| Server | Dark Blue | `python server/main.py` (FastAPI :8000) |
+| Server GUI | Dark Cyan | `python server/ui/app.py` (Flet dashboard :8550) |
+| Site 1 | Dark Green | `client/main.py` with `SITE_ID=site_1` (:8551) |
+| Site 2 | Dark Green | `client/main.py` with `SITE_ID=site_2` (:8552) |
+| Site 3 | Dark Green | `client/main.py` with `SITE_ID=site_3` (:8553) |
+| Site 4 | Dark Green | `client/main.py` with `SITE_ID=site_4` (:8554) |
+| Site 5 | Dark Green | `client/main.py` with `SITE_ID=site_5` (:8555) |
+
+The script activates the `.venv` automatically in each window — no manual `activate` needed.
+
+**Prerequisites:** venv created and dependencies installed (see Setup above). Run from the repo root in PowerShell (not CMD).
+
+#### `post_dev_cleanup.ps1` — stop everything and clean up
+
+```powershell
+.\post_dev_cleanup.ps1
+```
+
+What it does, in order:
+1. Kills any process listening on ports 8000 / 8550–8555
+2. Kills all remaining `python` / `pythonw` processes
+3. Closes the 7 dev terminal windows opened by `start_all_server_clients_dev.ps1` (matched by window title)
+4. Deletes `__pycache__/`, `*.pyc`, `.coverage`, `.pytest_cache/`, `htmlcov/` — skips `.venv`
+
+Run this after a dev session to leave a clean slate before the next `start_all_server_clients_dev.ps1` run.
+
 ---
 
 ## Repository layout

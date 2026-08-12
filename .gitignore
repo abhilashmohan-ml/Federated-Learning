@@ -54,8 +54,7 @@ Thumbs.db
 *.log
 logs/
 
-# Dev scripts (local only)
-post_dev_cleanup.ps1
+# Dev scripts (local only — none currently excluded)
 
 # Test artifacts
 .coverage
