@@ -1,4 +1,8 @@
-# Production Deployment Guide
+# Production Deployment Guide — Viral Filtration Federated Learning
+
+> **This guide is for production deployment only.**
+> Real remote servers. Real TLS certificates. Real separate networks per site.
+> For local development and federation testing on a single machine, see [`DEV_SETUP.md`](DEV_SETUP.md).
 
 This guide covers deploying the FL server to a public cloud VM and connecting remote manufacturing sites over the internet.
 
@@ -127,8 +131,8 @@ SERVER_DB_URL=postgresql+asyncpg://viral_fl:viral_fl_pass@db:5432/viral_fl
 SSL_KEYFILE=/certs/server.key
 SSL_CERTFILE=/certs/server.crt
 
-# CORS — list all site dashboard origins
-CORS_ORIGINS=https://site1.company.com:8551,https://site2.company.com:8552,https://site3.company.com:8553,https://site4.company.com:8554,https://site5.company.com:8555
+# CORS — JSON array of all site dashboard origins (pydantic-settings v2 requires JSON format)
+CORS_ORIGINS=["https://site1.company.com:8551","https://site2.company.com:8552","https://site3.company.com:8553","https://site4.company.com:8554","https://site5.company.com:8555"]
 ```
 
 Start the server:
@@ -159,14 +163,15 @@ Edit `.env` on each site (example for site_1):
 ```ini
 SITE_ID=site_1
 SERVER_URL=https://fl-server.yourdomain.com   # or http://IP:8000 if no TLS
-SITE_SECRET=<same value as SITE_1_SECRET on server>
+# Port (8551) and site secret are auto-derived from SITE_ID — set only the
+# SITE_N_SECRET matching this site's number:
+SITE_1_SECRET=<same value as SITE_1_SECRET on server>
 VERIFY_SSL=true                               # false only for self-signed certs
 CONNECT_TIMEOUT=15
 REQUEST_TIMEOUT=90
 RETRY_ATTEMPTS=5
 
 LOCAL_DATA_PATH=/path/to/local/filtration.csv
-FLET_CLIENT_PORT=8551
 ```
 
 Generate synthetic data (first run only):

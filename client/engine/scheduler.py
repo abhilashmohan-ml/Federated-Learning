@@ -25,14 +25,13 @@ trade-off:
   - Too infrequent (e.g., 60s): slow round participation; sites take up to 60s
     to notice a round started, delaying convergence
 
-KNOWN ISSUE
-------------
-The current implementation calls `httpx.get()` directly instead of using
-`fl.authenticate()` credentials management via `FLClient._request()`.
-This means:
-  1. It bypasses the exponential backoff retry logic
-  2. It does not handle token expiry (the auth header will stop working after 15 min)
-A future fix: use `fl._request()` for the poll request too.
+TOKEN REFRESH
+--------------
+Round status polls go through FLClient.get_round_status() which handles
+401 responses by refreshing the JWT token and retrying exactly once —
+the same pattern as upload_update() and start_round(). This keeps the
+scheduler alive across long idle periods (> 15-minute token lifetime)
+without requiring a full re-authentication.
 
 PYTHON CONCEPT: threading.Thread with daemon=True
   A daemon thread exits when the main thread (the Flet UI) exits.
@@ -50,11 +49,9 @@ from __future__ import annotations
 import time
 import threading
 
-import httpx
-
 from client.comms.fl_client      import FLClient
 from client.engine.local_trainer  import LocalTrainer
-from client.config                import get_client_settings
+from client.engine.state          import update_state
 from shared.utils.logging_config  import get_logger
 
 log = get_logger(__name__)
@@ -76,9 +73,8 @@ def _watch() -> None:
     already handled in a previous iteration. When round 3 is handled,
     `last_seen_round` becomes 3, so we only watch for round 4 next time.
     """
-    settings = get_client_settings()
-    fl       = FLClient()      # HTTP client with retry, SSL, auth
-    trainer  = LocalTrainer()  # local fitting engine
+    fl      = FLClient()      # HTTP client with retry, SSL, auth, token refresh
+    trainer = LocalTrainer()  # local fitting engine
 
     # Authenticate on startup — obtain access + refresh tokens
     try:
@@ -91,16 +87,10 @@ def _watch() -> None:
 
     while True:
         try:
-            # Poll for the next round.
-            # NOTE: This uses httpx.get() directly — a known issue.
-            # It should use fl._request() to get retry/backoff support.
-            resp = httpx.get(
-                f"{settings.server_url}/federation/round/{last_seen_round + 1}",
-                headers=fl.auth_headers,
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data   = resp.json()
+            # get_round_status returns None (404) when the round doesn't exist yet,
+            # or the round dict on 200. It auto-refreshes the JWT on 401.
+            data = fl.get_round_status(last_seen_round + 1)
+            if data is not None:
                 rid    = data.get("round_id", 0)
                 status = data.get("status", "")
 
@@ -108,21 +98,23 @@ def _watch() -> None:
                 if rid > last_seen_round and status == "collecting":
                     log.info("new_round", round_id=rid)
 
-                    # Run local training — this is the computationally expensive part.
-                    # It loads data, fits Hermia models, applies DP noise, and returns
-                    # a ModelUpdate object.
+                    update_state(phase="training", current_round_id=rid)
                     update = trainer.train_and_prepare_update(rid)
 
-                    # Upload the model update to the server.
-                    # FLClient handles token refresh if the 15-min access token expired.
+                    update_state(phase="uploading")
                     fl.upload_update(update)
 
-                    last_seen_round = rid   # mark this round as handled
+                    update_state(
+                        phase="done",
+                        last_round_completed=rid,
+                        last_flux_ratio=update.local_metrics.get("flux_ratio"),
+                        last_amin=update.local_metrics.get("amin_m2"),
+                        last_hermia_model=update.hermia_best_model,
+                    )
+                    last_seen_round = rid
 
         except Exception as exc:
-            # Catch all exceptions to prevent the polling loop from dying.
-            # Common causes: server unavailable, network timeout, parse error.
-            # We log a warning and continue — the next poll iteration will retry.
+            update_state(phase="error")
             log.warning("scheduler_poll_error", error=str(exc))
 
         # Wait before the next poll.

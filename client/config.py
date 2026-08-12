@@ -4,8 +4,10 @@ Client (manufacturing site) configuration — reads environment variables and .e
 SITE IDENTITY
 --------------
 Each of the 5 manufacturing sites runs an identical copy of the client code,
-but with different environment variables. The SITE_ID and SITE_SECRET
-variables are what distinguish site_1 from site_2, site_3, etc.
+but with different environment variables. SITE_ID is the only variable you
+need to set — port and site secret are automatically derived from it.
+SITE_1_SECRET … SITE_5_SECRET must be present in .env (or the container
+environment) so the correct secret can be selected for the active SITE_ID.
 
 When running via Docker Compose, each site container gets its own SITE_ID
 and SITE_SECRET from the .env file. When deploying to real servers, set
@@ -39,6 +41,7 @@ NETWORK RESILIENCE SETTINGS
                    Retries use exponential backoff: 2s, 4s, 8s between attempts.
 """
 from functools import lru_cache
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,7 +55,7 @@ class ClientSettings(BaseSettings):
 
     Example .env for site_2:
         SITE_ID=site_2
-        SITE_SECRET=my_very_secret_passphrase
+        SITE_2_SECRET=my_very_secret_passphrase
         SERVER_URL=https://flserver.mycompany.com
         LOCAL_DATA_PATH=/data/filtration.csv
         DP_NOISE_SIGMA=0.005
@@ -62,17 +65,52 @@ class ClientSettings(BaseSettings):
     # ── Site identity ───────────────────────────────────────────────────────────
     site_id:         str   = "site_1"           # unique name: site_1, site_2, ..., site_5
     server_url:      str   = "http://localhost:8000"  # URL of the FL aggregation server
-    site_secret:     str   = "secret_site_1"    # authentication secret (CHANGE IN PRODUCTION)
+
+    # Per-site secrets — read from SITE_1_SECRET … SITE_5_SECRET env vars.
+    # In dev the single .env contains all five; in Docker each container only
+    # needs to export its own SITE_N_SECRET.
+    site_1_secret:   str   = ""
+    site_2_secret:   str   = ""
+    site_3_secret:   str   = ""
+    site_4_secret:   str   = ""
+    site_5_secret:   str   = ""
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def site_secret(self) -> str:
+        """Return the secret for the active site_id (site_1→site_1_secret, etc.)."""
+        mapping = {
+            "site_1": self.site_1_secret,
+            "site_2": self.site_2_secret,
+            "site_3": self.site_3_secret,
+            "site_4": self.site_4_secret,
+            "site_5": self.site_5_secret,
+        }
+        return mapping.get(self.site_id, "")
 
     # ── Privacy ─────────────────────────────────────────────────────────────────
     dp_noise_sigma:  float = 0.01               # Gaussian DP noise σ added to gradients
                                                 # Larger σ → more privacy, less accuracy
 
     # ── Data ────────────────────────────────────────────────────────────────────
-    local_data_path: str   = "./data/site_1/filtration.csv"  # NEVER sent to server
+    local_data_path: str   = ""   # auto-derived from site_id when empty; NEVER sent to server
+
+    @model_validator(mode="after")
+    def _derive_local_data_path(self) -> "ClientSettings":
+        """Set local_data_path to data/<site_id>/filtration.csv when not explicitly overridden."""
+        if not self.local_data_path:
+            self.local_data_path = f"data/{self.site_id}/filtration.csv"
+        return self
 
     # ── UI ──────────────────────────────────────────────────────────────────────
-    flet_client_port: int  = 8551   # web port for the Flet status dashboard
+    @computed_field  # type: ignore[misc]
+    @property
+    def flet_client_port(self) -> int:
+        """Derive Flet port from site_id: site_1→8551, site_2→8552, …, site_5→8555."""
+        try:
+            return 8550 + int(self.site_id.split("_")[1])
+        except (IndexError, ValueError):
+            return 8551
 
     # ── Logging ─────────────────────────────────────────────────────────────────
     log_level:       str   = "INFO"   # DEBUG | INFO | WARNING | ERROR

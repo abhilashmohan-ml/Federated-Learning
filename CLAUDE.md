@@ -42,6 +42,11 @@ Commit using the superpowers git-workflow skill, or follow this format exactly:
   - Never use --no-verify (do not skip pre-commit hooks)
   - Never commit .env files, secrets, or credentials
   - One logical change per commit
+  - Always commit on the correct branch:
+      Bug fixes    →  fix/<ticket>-short-desc   branch
+      Features     →  feature/<ticket>-short-desc branch
+      Never commit directly to master/main
+  - After committing, update WORKPLAN.md Bug Fixes section with a summary line
 
 ## Project Overview
 Federated Learning engine for viral filtration of monoclonal antibodies (mAbs)

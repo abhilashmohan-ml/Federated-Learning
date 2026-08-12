@@ -41,6 +41,7 @@ data/
 
 # IDE
 .vscode/
+.vs/
 .idea/
 *.swp
 *.swo
@@ -53,8 +54,20 @@ Thumbs.db
 *.log
 logs/
 
+# Dev scripts (local only)
+post_dev_cleanup.ps1
+
+# Test artifacts
+.coverage
+coverage.xml
+htmlcov/
+
+# Superpowers generated plans
+docs/superpowers/
+
 # graphify outputs
 graphify-out/
 .graphify_python
 .graphify_*.json
 .graphify_*.txt
+.superpowers/

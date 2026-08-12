@@ -91,7 +91,7 @@ def configure_logging() -> None:
     )
 
 
-def get_logger(name: str) -> structlog.BoundLogger:  # type: ignore[type-arg]
+def get_logger(name: str) -> structlog.BoundLogger:
     """
     Get a structured logger for a specific module.
 
@@ -118,4 +118,4 @@ def get_logger(name: str) -> structlog.BoundLogger:  # type: ignore[type-arg]
     structlog.BoundLogger
         A logger instance that emits structured JSON log lines.
     """
-    return structlog.get_logger(name)
+    return structlog.get_logger(name)  # type: ignore[no-any-return]

@@ -56,7 +56,7 @@ import uvicorn                              # the ASGI server that runs FastAPI
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.api import auth, federation, models, health   # our API modules
+from server.api import auth, federation, models, health, internal   # our API modules
 from server.config import get_settings
 from shared.utils.logging_config import configure_logging
 
@@ -104,6 +104,7 @@ app.include_router(auth.router,       prefix="/auth",       tags=["auth"])
 app.include_router(federation.router, prefix="/federation", tags=["federation"])
 app.include_router(models.router,     prefix="/models",     tags=["models"])
 app.include_router(health.router,     prefix="/health",     tags=["health"])
+app.include_router(internal.router,   prefix="/internal",   tags=["internal"])
 
 
 if __name__ == "__main__":

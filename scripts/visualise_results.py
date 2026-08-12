@@ -34,10 +34,11 @@ plt.rcParams.update({'axes.labelsize': 12})  # Axis label font size
 
 plt.rcParams.update({'axes.prop_cycle': cycler.cycler('color', ['#0F69AF'])})
 
-os.environ.setdefault("SITE_ID",         "viz")
-os.environ.setdefault("SERVER_URL",      "http://localhost:8000")
-os.environ.setdefault("SITE_SECRET",     "secret_site_1")
-os.environ.setdefault("LOCAL_DATA_PATH", "data/site_1/filtration.csv")
+# SITE_SECRET is no longer used — secrets are per-site via SITE_N_SECRET.
+# LOCAL_DATA_PATH is auto-derived from SITE_ID in client/config.py.
+os.environ.setdefault("SITE_ID",       "viz")
+os.environ.setdefault("SERVER_URL",    "http://localhost:8000")
+os.environ.setdefault("SITE_1_SECRET", "viz_secret")
 
 from client.engine.data_loader   import load_filtration_csv
 from shared.models.hermia        import fit_all_models, compute_flux_ratio, compute_amin
