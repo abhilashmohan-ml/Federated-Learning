@@ -661,6 +661,91 @@ This script manages the round lifecycle internally — no separate terminals nee
 
 ---
 
+## Windows PowerShell Dev Scripts (One-Command Launch)
+
+> **Windows only.** These scripts replace the 7-terminal manual startup above with two PowerShell commands — one to start everything, one to clean up.
+
+### `start_all_server_clients_dev.ps1` — launch everything at once
+
+Run from the repo root in a PowerShell window (not CMD):
+
+```powershell
+.\start_all_server_clients_dev.ps1
+```
+
+**What it does, step by step:**
+
+1. **Frees ports** — scans 8000, 8550–8555 for listening processes and kills them before starting. This prevents "address already in use" errors if a previous session wasn't cleaned up.
+2. **Opens 7 colour-coded PowerShell windows**, one per component, each titled and colour-coded so you can identify them at a glance:
+
+| Window title | Background colour | Process started |
+|---|---|---|
+| `Server` | Dark Blue | `python server/main.py` — FastAPI REST API on :8000 |
+| `Server GUI` | Dark Cyan | `python server/ui/app.py` — Flet monitoring dashboard on :8550 |
+| `Site 1` | Dark Green | `client/main.py` — site_1 FL client on :8551 |
+| `Site 2` | Dark Green | `client/main.py` — site_2 FL client on :8552 |
+| `Site 3` | Dark Green | `client/main.py` — site_3 FL client on :8553 |
+| `Site 4` | Dark Green | `client/main.py` — site_4 FL client on :8554 |
+| `Site 5` | Dark Green | `client/main.py` — site_5 FL client on :8555 |
+
+3. **Activates `.venv` automatically** inside every window — you do not need to activate it manually.
+
+**Prerequisites before running:**
+- venv created (`python -m venv .venv`)
+- Dependencies installed (`pip install -r requirements/server.txt` + `client.txt`)
+- `.env` configured and `init_db.py` + `generate_synthetic_data.py` already run
+- Run from the repo root, not a subdirectory
+
+**Expected output in the PowerShell window that ran the script:**
+```
+Checking project ports...
+  All ports free.
+All 7 windows launched.
+```
+
+Then switch to the `Server` window and wait for:
+```
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000
+```
+
+Then trigger a federation round (see Step 10 above) — all 5 site clients respond automatically.
+
+---
+
+### `post_dev_cleanup.ps1` — stop everything and clean up
+
+Run from the repo root in any PowerShell window when you are done for the session:
+
+```powershell
+.\post_dev_cleanup.ps1
+```
+
+**What it does, in order:**
+
+1. **Kills port-holding processes** — frees ports 8000, 8550–8555 so the next `start_all_server_clients_dev.ps1` run starts cleanly.
+2. **Kills all `python` / `pythonw` processes** — catches any Python process not bound to a port (e.g. a backgrounded training loop).
+3. **Closes the 7 dev terminal windows** — matches by window title (`Server`, `Server GUI`, `Site 1`–`Site 5`) and closes them. Only the windows opened by `start_all_server_clients_dev.ps1` are affected; other PowerShell windows with different titles are left open.
+4. **Deletes cache and test artefacts** — removes `__pycache__/`, `*.pyc`, `.coverage`, `.pytest_cache/`, `htmlcov/` from the entire repo tree, skipping `.venv`.
+
+**Expected output:**
+```
+Freeing ports...
+  No processes on project ports.
+Stopping Python processes...
+Closing dev terminal windows...
+  Closed: Server
+  Closed: Server GUI
+  Closed: Site 1
+  ...
+Cleaning cache files...
+Done. Ports free, terminals closed, cache clean.
+```
+
+Run this before finishing for the day or before switching branches, so the next startup is clean.
+
+---
+
 ## Development Workflow: Coding + Testing Federation
 
 This section is for the daily cycle: **edit code → test it → iterate**.

@@ -192,6 +192,36 @@ SITE_ID=site_1 FLET_CLIENT_PORT=8551 python client/main.py
 SITE_ID=site_2 FLET_CLIENT_PORT=8552 python client/main.py
 ```
 
+### Windows shortcut — start and stop everything with two commands
+
+On Windows, two PowerShell scripts replace the 7-terminal manual process above.
+
+#### Start everything: `start_all_server_clients_dev.ps1`
+
+```powershell
+.\start_all_server_clients_dev.ps1
+```
+
+Frees all project ports, then opens **7 colour-coded PowerShell windows** (one per component) with the venv activated automatically in each:
+
+| Window | Colour | What runs |
+|---|---|---|
+| `Server` | Dark Blue | FastAPI server on :8000 |
+| `Server GUI` | Dark Cyan | Flet dashboard on :8550 |
+| `Site 1`–`Site 5` | Dark Green | FL clients on :8551–:8555 |
+
+All 7 stay open so you can watch their logs. Run from the repo root.
+
+#### Stop and clean up: `post_dev_cleanup.ps1`
+
+```powershell
+.\post_dev_cleanup.ps1
+```
+
+Kills port-holding processes, kills all Python processes, closes the 7 dev windows by title, then deletes `__pycache__/`, `.coverage`, `.pytest_cache/`, and `htmlcov/` (skips `.venv`). Run at end of session.
+
+See [`docs/DEV_SETUP.md`](DEV_SETUP.md) for full step-by-step detail on both scripts.
+
 ---
 
 ## 4. Configuration reference
