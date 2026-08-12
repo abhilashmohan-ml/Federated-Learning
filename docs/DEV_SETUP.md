@@ -603,6 +603,10 @@ curl -s -X POST http://localhost:8000/federation/round/start `
 
 #### Option B — Swagger UI (no terminal juggling)
 
+> **You only start the round once.** `POST /federation/round/start` is called a single time on the
+> server. All 5 site clients (already running from Step 9) automatically detect the new round and
+> begin training in parallel — you do **not** repeat this for each site.
+
 1. Open **http://localhost:8000/docs** in your browser
 2. Find **`POST /auth/token`** → click **Try it out** → paste:
    ```json
@@ -613,7 +617,7 @@ curl -s -X POST http://localhost:8000/federation/round/start `
    > here proves site_1's identity.
 3. Click **Execute** → copy the `access_token` from the response body
 4. Click the **Authorize** padlock (top right) → enter `Bearer <token>` → **Authorize**
-5. Find **`POST /federation/round/start`** → **Try it out** → **Execute**
+5. Find **`POST /federation/round/start`** → **Try it out** → **Execute** *(do this once — all 5 sites respond)*
 6. Note the `round_id` in the response (usually `1` on the first run)
 7. Find **`GET /federation/round/{round_id}`** → enter `1` → **Execute** to poll status
 
