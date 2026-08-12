@@ -1,123 +1,247 @@
 # Viral Filtration Federated Learning
 
-A federated learning (FL) system for viral filtration of monoclonal antibodies (mAbs) across
-multiple manufacturing sites. Raw process data never leaves a site — only privacy-protected
-model updates travel over the network.
+Privacy-preserving federated learning platform for optimising viral filtration of monoclonal antibodies (mAbs) across distributed pharmaceutical manufacturing sites.
+
+Five sites collaboratively train a shared **Physics-Informed Neural Network (PINN)** without any raw process data leaving the site boundary. Only differential-privacy-noised gradient updates are transmitted to the central server.
 
 ---
 
 ## What it does
 
-Each manufacturing site runs a local training engine that:
-
-1. Loads its private filtration CSV (time, flux, TMP measurements)
-2. Fits Hermia blocking models and selects the best by AIC
-3. Computes the Manabe capture probability and LRV
-4. Applies Gaussian differential privacy noise to the model delta
-5. Uploads only the noisy parameter delta to the central server
-
-The server aggregates deltas from all sites using FedProx weighted averaging and broadcasts
-a new global Physics-Informed Neural Network (PINN) after each round.
-
-After convergence the global model can predict flux decline J(t), calculate LRV, compute
-minimum filter area (Amin), and classify the dominant fouling regime for any filter or
-operating condition.
+| Capability | Detail |
+|---|---|
+| Flux decline prediction | J(t) for any filter / operating condition |
+| LRV calculation | Manabe capture-probability model; checks ≥ 4.0 log regulatory minimum |
+| Filter sizing | Minimum filter area A_min and flux ratio |
+| Fouling regime classification | Hermia AIC/BIC model selection across 5 blocking models |
+| Privacy guarantee | Gaussian DP noise on all gradient updates; raw CSVs never leave the site |
+| Live dashboards | Flet web UI for the central server and each of the 5 client sites |
 
 ---
 
-## Architecture
+## System architecture
 
 ```
-                        ┌─────────────────────────┐
-                        │   Central FL Server      │
-                        │  FastAPI  +  PostgreSQL   │
-                        │  Flet dashboard :8550     │
-                        └────────────┬────────────┘
-                                     │  FedProx aggregation
-              ┌──────────────────────┼──────────────────────┐
-              │                      │                      │
-   ┌──────────▼──────┐   ┌──────────▼──────┐   ┌──────────▼──────┐
-   │   Site 1 :8551   │   │   Site 2 :8552   │   │ Sites 3–5 ...   │
-   │  Local trainer   │   │  Local trainer   │   │  Local trainer  │
-   │  Private data    │   │  Private data    │   │  Private data   │
-   └─────────────────┘   └─────────────────┘   └─────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Central Server                            │
+│                                                                  │
+│   FastAPI  :8000               Flet Dashboard  :8550             │
+│   ├── /auth                    ├── Round overview                │
+│   ├── /federation              ├── Per-site monitor              │
+│   ├── /models                  ├── Global model viewer           │
+│   └── /health                  └── Settings                      │
+│                                                                  │
+│   Core                         Database (PostgreSQL / SQLite)    │
+│   ├── RoundManager             ├── site_registry                 │
+│   ├── FedProxAggregator        ├── rounds                        │
+│   └── ModelRegistry            └── model_updates                 │
+└──────────────────────────────────────────────────────────────────┘
+          │  HTTPS + JWT Bearer
+     ┌────┴────┬──────┬──────┬──────────────┐
+     │         │      │      │              │
+  site_1    site_2  site_3  site_4       site_5
+  :8551     :8552   :8553   :8554        :8555
+
+Each site:  DataLoader → LocalTrainer → DP noise → POST /federation/update
 ```
 
-Each site network is isolated — sites cannot communicate with each other,
-only with the central server.
+Sites run in isolated networks. A site can reach the server but **cannot** reach any other site or the database.
 
 ---
 
 ## Quick start — Docker (recommended)
 
-**Prerequisites:** Docker Desktop 4.x+, Git
+The fastest path to a full 5-site federation experiment on one machine.
+
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+- Git
+
+### 1. Clone
 
 ```bash
-git clone <repo-url>
-cd viral_fl_project
-
-# 1. Copy and edit environment file
-cp .env.example .env
-# Edit .env: set SERVER_SECRET_KEY and SITE_N_SECRET values
-
-# 2. Generate synthetic data for all 5 sites
-python scripts/generate_synthetic_data.py
-
-# 3. Start everything
-docker compose up --build
-
-# 4. Open dashboards
-#    Server dashboard:  http://localhost:8550
-#    Site 1 client:     http://localhost:8551
-#    Site 2 client:     http://localhost:8552
-#    Site 3 client:     http://localhost:8553
-#    Site 4 client:     http://localhost:8554
-#    Site 5 client:     http://localhost:8555
+git clone https://github.com/abhilashmohan-ml/Federated-Learning.git
+cd Federated-Learning
 ```
 
-To stop: `docker compose down`
-To wipe the database: `docker compose down -v`
+### 2. Generate secrets and configure `.env`
+
+```bash
+cp .env.example .env
+```
+
+Run the generator **6 times** and keep all outputs:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Open `.env` and fill in the 6 values:
+
+```ini
+SERVER_SECRET_KEY=<1st secret>   # signs all JWT tokens — server won't start without this
+SITE_1_SECRET=<2nd secret>
+SITE_2_SECRET=<3rd secret>
+SITE_3_SECRET=<4th secret>
+SITE_4_SECRET=<5th secret>
+SITE_5_SECRET=<6th secret>
+```
+
+Everything else in `.env.example` is already correct for Docker dev.
+
+### 3. Build and start
+
+```bash
+docker compose up --build
+```
+
+First build: ~3–5 min. Subsequent starts: ~10 s.
+
+On first boot the server automatically:
+1. Creates all DB tables
+2. Registers all 5 sites with bcrypt-hashed secrets
+3. Generates synthetic filtration CSV data for each site
+
+Healthy startup looks like:
+```
+db      | database system is ready to accept connections
+server  | INFO:     Application startup complete.
+site_1  | INFO  site_1 registered — awaiting round
+```
+
+### 4. Verify
+
+| URL | Expected |
+|---|---|
+| http://localhost:8000/health/ | `{"status": "ok"}` |
+| http://localhost:8000/docs | Swagger UI — all REST endpoints |
+| http://localhost:8550 | Server dashboard — 5 sites listed |
+| http://localhost:8551–8555 | Site client UIs |
+
+### 5. Trigger a federation round
+
+**Swagger UI (easiest):**
+
+1. Go to http://localhost:8000/docs
+2. `POST /auth/token` → **Try it out** → paste:
+   ```json
+   { "site_id": "site_1", "site_secret": "<your SITE_1_SECRET>" }
+   ```
+3. Copy the `access_token` → click **Authorize** (padlock) → `Bearer <token>`
+4. `POST /federation/round/start` → **Try it out** → **Execute**
+5. Watch http://localhost:8550 — round progress updates live
+
+**curl:**
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"site_id":"site_1","site_secret":"YOUR_SITE_1_SECRET"}' \
+  | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# Start a round
+curl -s -X POST http://localhost:8000/federation/round/start \
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
+
+# Poll status (replace 1 with round_id from above)
+curl -s http://localhost:8000/federation/round/1 \
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
+
+# Fetch new global model after round completes
+curl -s http://localhost:8000/models/global-model \
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
+```
+
+**Full headless simulation (50 rounds, no UI needed):**
+
+```bash
+docker compose exec server python scripts/run_simulation.py
+```
+
+### Stop
+
+```bash
+docker compose down        # stop containers, keep database
+docker compose down -v     # stop and wipe database (full reset)
+```
 
 ---
 
-## Quick start — virtual environment (development)
+## Quick start — virtual environment (developers)
 
-**Prerequisites:** Python 3.11+, PostgreSQL 16
+Use when editing code — no Docker rebuild needed on each change.
+
+### Prerequisites
+
+- Python 3.11+ (3.12 recommended)
+- No PostgreSQL needed — SQLite is used by default
+
+### Setup
 
 ```bash
-# 1. Create and activate venv
+git clone https://github.com/abhilashmohan-ml/Federated-Learning.git
+cd Federated-Learning
+
 python -m venv .venv
-source .venv/bin/activate        # Linux/macOS
-.venv\Scripts\activate           # Windows
+source .venv/bin/activate           # Linux / macOS
+# .venv\Scripts\activate            # Windows
 
-# 2. Install dependencies
-pip install -r requirements/base.txt
-pip install -r requirements/server.txt   # server node
-pip install -r requirements/client.txt  # each client node
+pip install -r requirements/server.txt
+pip install -r requirements/client.txt
+pip install -e .                    # makes shared/ importable from all scripts
 
-# 3. Configure environment
 cp .env.example .env
-# Edit .env — see docs/USAGE_GUIDE.md for every variable
+```
 
-# 4. Initialise the database
-python scripts/init_db.py
+Edit `.env` — make these 5 changes for venv dev:
 
-# 5. Generate synthetic data
-python scripts/generate_synthetic_data.py
+```ini
+SERVER_SECRET_KEY=<generated secret>
+SERVER_DB_URL=sqlite+aiosqlite:///./viral_fl.db   # SQLite, no install needed
+SERVER_URL=http://localhost:8000
+SITE_1_SECRET=<secret>  # through SITE_5_SECRET
+FL_ROUNDS=5             # optional: faster dev cycle
+MIN_SITES_PER_ROUND=2   # optional: easier to trigger with fewer clients
+```
 
-# 6. Start server (terminal 1)
+```bash
+python scripts/init_db.py                  # create tables + register 5 sites
+python scripts/generate_synthetic_data.py  # create data/site_N/filtration.csv
+```
+
+### Run (7 terminals)
+
+```bash
+# Terminal 1
 python server/main.py
 
-# 7. Start server dashboard (terminal 2)
+# Terminal 2 (optional — live dashboard)
 python server/ui/app.py
 
-# 8. Start clients in separate terminals (terminals 3–7)
+# Terminals 3–7
 SITE_ID=site_1 python client/main.py
 SITE_ID=site_2 python client/main.py
-# ... repeat for site_3, site_4, site_5
+SITE_ID=site_3 python client/main.py
+SITE_ID=site_4 python client/main.py
+SITE_ID=site_5 python client/main.py
 
-# 9. Run a full simulation end-to-end
+# Windows PowerShell:
+$env:SITE_ID="site_1"; python client/main.py
+```
+
+Then trigger a round via Swagger or curl (same as Docker above).
+
+**Or run all rounds headless:**
+
+```bash
 python scripts/run_simulation.py
+```
+
+**Visualise results after simulation:**
+
+```bash
+python scripts/visualise_results.py
 ```
 
 ---
@@ -126,108 +250,117 @@ python scripts/run_simulation.py
 
 ```
 viral_fl_project/
-├── shared/                     # Code shared by server and all clients
-│   ├── models/
-│   │   ├── hermia.py           # 6 Hermia blocking models + AIC/BIC selection
-│   │   ├── manabe.py           # Manabe capture probability + LRV calculation
-│   │   ├── polarization.py     # Virus concentration polarisation model
-│   │   ├── combined_1a.py      # Combined 1-A flux decline model
-│   │   └── pinn.py             # Physics-Informed Neural Network (PINN)
-│   ├── schemas/                # Pydantic v2 request/response schemas
-│   ├── crypto/
-│   │   ├── noise.py            # Gaussian differential privacy (DP) noise
-│   │   └── secure_agg.py       # Additive secret sharing
-│   └── utils/
-│       ├── constants.py        # Physical parameter bounds
-│       └── logging_config.py   # Structured JSON logging (structlog)
-├── server/
-│   ├── api/                    # FastAPI routes (auth, federation, models, health)
-│   ├── core/
-│   │   ├── aggregator.py       # FedProx weighted aggregation
-│   │   ├── round_manager.py    # FL round state machine
-│   │   └── model_registry.py   # Global model version history
-│   ├── db/                     # SQLAlchemy models + Alembic migrations
-│   └── ui/                     # Flet server dashboard (port 8550)
-├── client/
-│   ├── engine/
-│   │   ├── data_loader.py      # Reads local filtration CSV (data stays on-site)
-│   │   ├── local_trainer.py    # Hermia fit + DP noise + update packaging
-│   │   └── scheduler.py        # Polls server, triggers training each round
-│   ├── comms/                  # HTTP client + heartbeat
-│   └── ui/                     # Flet client dashboard (port 8551–8555)
-├── scripts/
-│   ├── generate_synthetic_data.py
-│   ├── init_db.py
-│   ├── run_simulation.py
-│   └── visualise_results.py
-├── notebooks/                  # Jupyter exploration notebooks (01–04)
-├── requirements/
-│   ├── base.txt                # Shared deps (numpy, torch, pydantic, ...)
-│   ├── server.txt              # Server-only (FastAPI, SQLAlchemy, Flet, ...)
-│   └── client.txt              # Client-only (Flet, ...)
+├── server/               FastAPI aggregation server + Flet dashboard
+│   ├── api/              auth.py  federation.py  models.py  health.py
+│   ├── core/             aggregator.py  round_manager.py  model_registry.py
+│   ├── db/               database.py  models.py  migrations/
+│   └── ui/               app.py  pages/  components/
+├── client/               Per-site FL client
+│   ├── engine/           local_trainer.py  data_loader.py  scheduler.py
+│   ├── comms/            fl_client.py  heartbeat.py
+│   └── ui/               app.py  pages/
+├── shared/               Code shared by server and all clients
+│   ├── models/           hermia.py  manabe.py  polarization.py
+│   │                     combined_1a.py  pinn.py
+│   ├── crypto/           noise.py (Gaussian DP)  secure_agg.py
+│   ├── schemas/          auth.py  federation.py  filtration.py (Pydantic v2)
+│   └── utils/            constants.py  logging_config.py
+├── scripts/              init_db.py  generate_synthetic_data.py
+│                         run_simulation.py  visualise_results.py
+├── notebooks/            01_hermia  02_manabe  03_pinn  04_federated_sim
+├── data/                 site_1/ … site_5/  (generated — not committed)
+├── requirements/         base.txt  server.txt  client.txt
+├── docs/                 DEV_SETUP.md  PRODUCTION.md  FUNCTIONAL_SPEC.md
+│                         TECHNICAL_SPEC.md  DESIGN_SPEC.md  DB_SCHEMA.md
 ├── docker-compose.yml
-├── .env.example
-├── WORKPLAN.md
-└── docs/
-    ├── USAGE_GUIDE.md
-    ├── FUNCTIONAL_SPEC.md
-    ├── TECHNICAL_SPEC.md
-    ├── DESIGN_SPEC.md
-    ├── DB_SCHEMA.md
-    └── SYSTEM_DIAGRAM.html
+└── .env.example
 ```
 
 ---
 
-## Key technologies
+## Federated learning protocol
+
+```
+Round N
+  Server  →  POST /federation/round/start
+  Server  →  broadcast global model weights W to all sites
+  Site N  →  load local filtration CSV
+          →  fit Hermia models (AIC/BIC selection)
+          →  fit Manabe + polarisation models
+          →  run PINN local training (FedProx loss)
+          →  clip L2 norm of gradients + add Gaussian DP noise
+          →  POST /federation/update  { site_id, round_id, delta_W, n_samples }
+  Server  →  FedProx weighted average  →  new global W
+  Server  →  increment round  or  broadcast CONVERGED
+```
+
+Aggregation triggers when `MIN_SITES_PER_ROUND` (default 3) updates arrive **or** `ROUND_TIMEOUT_SECONDS` (default 300 s) elapses — whichever is first.
+
+Round status flow: `PENDING → COLLECTING → AGGREGATING → COMPLETE` (or `FAILED`)
+
+---
+
+## Physics models
+
+| Model | Equation |
+|---|---|
+| Standard blocking | `J(t) = J0 / (1 + ks·t)²` |
+| Complete blocking | `J(t) = J0 · exp(−kc·t)` |
+| Intermediate blocking | `J(t) = J0 / (1 + J0·ki·t)` |
+| Cake filtration | `J(t) = J0 / √(1 + J0²·kcf·t)` |
+| Combined 1-A | `J(t) = J0/(1+k1·t)² · exp(−k2·t)` |
+| Manabe LRV | `Pc = 1 − exp(−λ·J/J_crit)` ; `LRV = log₁₀(1/(1−Pc)) · N_layers` |
+| FedProx proximal | `L_fedprox = (μ/2) · ‖W_local − W_global‖²` |
+
+Best Hermia model selected by AIC. Regulatory minimum: LRV ≥ 4.0 for parvovirus, retrovirus, and herpesvirus.
+
+---
+
+## REST API (summary)
+
+Base URL: `http(s)://<server>:8000`  
+All federation routes require `Authorization: Bearer <access_token>`.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/auth/token` | Obtain access + refresh tokens |
+| `POST` | `/auth/refresh` | Rotate token pair |
+| `POST` | `/auth/revoke` | Revoke refresh token (logout) |
+| `POST` | `/federation/round/start` | Start a new FL round |
+| `POST` | `/federation/update` | Submit a local model update |
+| `GET` | `/federation/round/{id}` | Round status and metrics |
+| `GET` | `/federation/sites` | All site statuses |
+| `GET` | `/models/global-model` | Download current global weights |
+| `GET` | `/health/` | Liveness probe (no auth required) |
+
+Full schema with request/response bodies: http://localhost:8000/docs
+
+---
+
+## Technology stack
 
 | Layer | Technology |
 |---|---|
-| FL protocol | Custom FedProx over HTTP |
-| API | FastAPI + Uvicorn |
-| Database | PostgreSQL 16 + SQLAlchemy async + Alembic |
-| ML | PyTorch (PINN), SciPy (curve fitting) |
-| Privacy | Gaussian DP noise + L2 gradient clipping |
-| Dashboards | Flet 0.85+ (web browser mode) |
-| Schemas | Pydantic v2 |
-| Logging | structlog (structured JSON) |
-| Testing | pytest + pytest-cov (100% coverage on core modules) |
-| Containers | Docker Compose |
-
----
-
-## Privacy guarantees
-
-- Raw filtration measurements (time, flux, TMP) never leave the site container
-- Only model parameter deltas (delta_W) are transmitted
-- All deltas have Gaussian DP noise added before transmission (configurable sigma)
-- Site networks are isolated — inter-site communication is impossible
-- JWT tokens expire after 15 minutes; refresh tokens after 7 days
-- All secrets are environment variables — never hardcoded
-
----
-
-## FL protocol
-
-```
-Round start    Server  →  POST /federation/round/start
-Broadcast      Server  →  sends global weights W to all registered sites
-Local train    Site    →  fit Hermia models → compute delta_W → add DP noise
-Upload         Site    →  POST /federation/update  {site_id, round_id, delta_W}
-Aggregate      Server  →  FedProx weighted average of all deltas → new W
-Repeat until convergence or FL_ROUNDS reached
-```
-
-Minimum sites required per round is configurable (`MIN_SITES_PER_ROUND`, default 3).
-If quorum is not reached within `ROUND_TIMEOUT_SECONDS` (default 300 s), the server
-aggregates whatever updates it has received.
+| Server framework | FastAPI + Uvicorn |
+| Database ORM | SQLAlchemy 2 (asyncio) |
+| Migrations | Alembic |
+| Database | PostgreSQL 16 (prod) / SQLite (dev) |
+| Dashboard UI | Flet |
+| ML framework | PyTorch |
+| Curve fitting | NumPy · SciPy · Pandas |
+| Schema validation | Pydantic v2 |
+| Auth | JWT HS256 (python-jose) + bcrypt (passlib) |
+| HTTP client | httpx (with exponential-backoff retry) |
+| Structured logging | structlog |
+| Privacy | Gaussian DP — per-layer L2 clipping + noise injection |
+| Containers | Docker + Docker Compose |
 
 ---
 
 ## Running tests
 
 ```bash
-# All tests with coverage
+# Full suite with coverage report
 pytest --cov=shared --cov=server/core --cov=client/engine --cov-report=term-missing
 
 # UI component tests only
@@ -237,7 +370,26 @@ pytest server/tests/ui/ client/tests/ui/ -v
 pytest shared/tests/test_hermia.py -v
 ```
 
-Core modules (`shared/`, `server/core/`, `client/engine/`) have 100% line and branch coverage.
+```bash
+# Linting and type checking
+black --check --line-length 100 .
+ruff check .
+mypy --strict shared/ server/ client/
+isort --check-only --profile black .
+```
+
+Required coverage: ≥ 80% across `shared/`, `server/core/`, `client/engine/`.
+
+---
+
+## Production deployment
+
+See [`docs/PRODUCTION.md`](docs/PRODUCTION.md) for the full guide covering:
+
+- Cloud VM provisioning and firewall rules
+- TLS via Let's Encrypt or nginx reverse proxy
+- Per-site configuration (outbound-only — no inbound ports needed on site machines)
+- Security checklist before going live
 
 ---
 
@@ -245,16 +397,21 @@ Core modules (`shared/`, `server/core/`, `client/engine/`) have 100% line and br
 
 | Document | Contents |
 |---|---|
-| `docs/USAGE_GUIDE.md` | Step-by-step setup, configuration reference, troubleshooting |
-| `docs/FUNCTIONAL_SPEC.md` | Business requirements and user stories |
-| `docs/TECHNICAL_SPEC.md` | API reference, data flows, deployment architecture |
-| `docs/DESIGN_SPEC.md` | UI/UX design decisions |
-| `docs/DB_SCHEMA.md` | Database schema and migration history |
-| `docs/SYSTEM_DIAGRAM.html` | Interactive system architecture diagram |
-| `WORKPLAN.md` | Build plan and progress tracker |
+| [`docs/DEV_SETUP.md`](docs/DEV_SETUP.md) | Full developer setup, daily workflow patterns, troubleshooting |
+| [`docs/PRODUCTION.md`](docs/PRODUCTION.md) | Production deployment, TLS, remote site configuration |
+| [`docs/FUNCTIONAL_SPEC.md`](docs/FUNCTIONAL_SPEC.md) | Functional requirements (FR-01…FR-31, DP-01…DP-05) |
+| [`docs/TECHNICAL_SPEC.md`](docs/TECHNICAL_SPEC.md) | REST API reference, physics equations, PINN architecture, config reference |
+| [`docs/DESIGN_SPEC.md`](docs/DESIGN_SPEC.md) | Component design, state machines, auth flow, network isolation |
+| [`docs/DB_SCHEMA.md`](docs/DB_SCHEMA.md) | Database schema, SQLAlchemy models, migration workflow |
+| [`docs/USAGE_GUIDE.md`](docs/USAGE_GUIDE.md) | End-to-end usage guide, dashboards, Jupyter notebooks |
 
 ---
 
-## Licence
+## Key constraints
 
-Internal research project — not for distribution.
+- Raw filtration CSV data **never** leaves the site container
+- All secrets via environment variables — never hardcoded
+- No `print()` in production; all output via structured `structlog` logging
+- All public functions require full type hints (`mypy --strict`)
+- DB schema changes only via Alembic migrations
+- Every federation round emits a structured audit log entry
