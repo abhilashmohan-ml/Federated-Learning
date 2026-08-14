@@ -90,18 +90,21 @@ def _make_hermia_result(selected: bool = True, model_name: str = "combined_1a"):
 
 
 class TestLocalTrainer:
-    def _build_csv(self, tmp_path) -> str:
-        p = tmp_path / "data.csv"
-        rows = [(i * 3.0, 100.0 - i * 1.5, 1.0) for i in range(20)]
-        _write_csv(str(p), rows)
-        return str(p)
+    def _mock_ds(self, n: int = 20) -> MagicMock:
+        """Return a mock DataSource that produces n-row filtration arrays."""
+        ds = MagicMock()
+        ds.get_data.return_value = (
+            np.arange(0, n, dtype=np.float64) * 3.0,
+            np.array([100.0 - i * 1.5 for i in range(n)], dtype=np.float64),
+            np.ones(n, dtype=np.float64),
+        )
+        return ds
 
-    def test_train_basic_returns_model_update(self, tmp_path) -> None:
-        csv_path = self._build_csv(tmp_path)
+    def test_train_basic_returns_model_update(self) -> None:
         mock_result = _make_hermia_result(selected=True)
 
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+                   return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models",
                    return_value={"combined_1a": mock_result}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
@@ -109,7 +112,7 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
-            trainer = LocalTrainer()
+            trainer = LocalTrainer(data_source=self._mock_ds())
             update = trainer.train_and_prepare_update(round_id=1)
 
         from shared.schemas.federation import ModelUpdate
@@ -119,13 +122,12 @@ class TestLocalTrainer:
         assert update.hermia_best_model == "combined_1a"
         assert update.n_samples == 20
 
-    def test_train_local_metrics_set(self, tmp_path) -> None:
-        csv_path = self._build_csv(tmp_path)
+    def test_train_local_metrics_set(self) -> None:
         mock_result = _make_hermia_result(selected=True)
         mock_result.rmse = 2.5
 
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+                   return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models",
                    return_value={"combined_1a": mock_result}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.75), \
@@ -133,7 +135,7 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
-            trainer = LocalTrainer()
+            trainer = LocalTrainer(data_source=self._mock_ds())
             update = trainer.train_and_prepare_update(round_id=3)
 
         assert "flux_rmse" in update.local_metrics
@@ -141,13 +143,12 @@ class TestLocalTrainer:
         assert "amin_m2" in update.local_metrics
         assert update.local_metrics["flux_ratio"] == pytest.approx(0.75)
 
-    def test_train_fallback_to_first_when_no_selected(self, tmp_path) -> None:
+    def test_train_fallback_to_first_when_no_selected(self) -> None:
         """When no HermiaResult has selected=True, falls back to first in dict."""
-        csv_path = self._build_csv(tmp_path)
         mock_result = _make_hermia_result(selected=False, model_name="standard")
 
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+                   return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models",
                    return_value={"standard": mock_result}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
@@ -155,16 +156,15 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
-            trainer = LocalTrainer()
+            trainer = LocalTrainer(data_source=self._mock_ds())
             update = trainer.train_and_prepare_update(round_id=2)
 
         assert update.hermia_best_model == "standard"
 
-    def test_empty_hermia_results_raises_index_error(self, tmp_path) -> None:
+    def test_empty_hermia_results_raises_index_error(self) -> None:
         """fit_all_models returning {} → list({})[0] raises IndexError (documented behavior)."""
-        csv_path = self._build_csv(tmp_path)
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+                   return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models", return_value={}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
              patch("client.engine.local_trainer.compute_amin", return_value=0.05), \
@@ -172,16 +172,15 @@ class TestLocalTrainer:
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
             with pytest.raises(IndexError):
-                LocalTrainer().train_and_prepare_update(round_id=1)
+                LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(round_id=1)
 
-    def test_all_five_local_metric_keys_present(self, tmp_path) -> None:
-        csv_path = self._build_csv(tmp_path)
+    def test_all_five_local_metric_keys_present(self) -> None:
         mock_result = _make_hermia_result(selected=True)
         mock_result.aic = -60.0
         mock_result.bic = -55.0
 
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+                   return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models",
                    return_value={"combined_1a": mock_result}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.75), \
@@ -189,7 +188,7 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
-            update = LocalTrainer().train_and_prepare_update(round_id=1)
+            update = LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(round_id=1)
 
         assert "flux_rmse" in update.local_metrics
         assert "flux_ratio" in update.local_metrics
@@ -199,8 +198,7 @@ class TestLocalTrainer:
         assert update.local_metrics["best_aic"] == pytest.approx(-60.0)
         assert update.local_metrics["best_bic"] == pytest.approx(-55.0)
 
-    def test_dp_noise_applied(self, tmp_path) -> None:
-        csv_path = self._build_csv(tmp_path)
+    def test_dp_noise_applied(self) -> None:
         mock_result = _make_hermia_result(selected=True)
         noise_called_with = {}
 
@@ -209,8 +207,7 @@ class TestLocalTrainer:
             return w
 
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(
-                       local_data_path=csv_path, dp_noise_sigma=0.05)), \
+                   return_value=_mock_client_settings(dp_noise_sigma=0.05)), \
              patch("client.engine.local_trainer.fit_all_models",
                    return_value={"combined_1a": mock_result}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
@@ -218,7 +215,7 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=capture_noise):
             from client.engine.local_trainer import LocalTrainer
-            LocalTrainer().train_and_prepare_update(round_id=1)
+            LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(round_id=1)
 
         assert noise_called_with.get("sigma") == pytest.approx(0.05)
 
