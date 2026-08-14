@@ -89,10 +89,9 @@ class RoundManager:
         self._model_version:    int = 0
         self._current_round_id: int = 0
 
-        # Initialise site statuses for all 5 sites — all IDLE at startup
-        self._site_statuses: Dict[str, SiteStatus] = {
-            f"site_{i}": SiteStatus.IDLE for i in range(1, 6)
-        }
+        # Site statuses start empty; entries are added dynamically when a site
+        # first sends an update, so no site names are hardcoded here.
+        self._site_statuses: Dict[str, SiteStatus] = {}
 
         self._aggregator = FedProxAggregator()
         self._settings   = get_settings()

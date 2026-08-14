@@ -8,60 +8,41 @@ from client.config import ClientSettings
 
 
 class TestFletClientPort:
-    """flet_client_port derives port from site_id."""
+    """flet_client_port reads from FLET_CLIENT_PORT env var; default 8551."""
 
-    @pytest.mark.parametrize("site_id,expected_port", [
-        ("site_1", 8551),
-        ("site_2", 8552),
-        ("site_3", 8553),
-        ("site_4", 8554),
-        ("site_5", 8555),
-    ])
-    def test_port_derived_from_site_id(self, site_id: str, expected_port: int) -> None:
-        s = ClientSettings(site_id=site_id)
-        assert s.flet_client_port == expected_port
-
-    def test_unknown_site_id_falls_back_to_8551(self) -> None:
-        """Unrecognised site_id (no underscore digit) falls back to 8551."""
-        s = ClientSettings(site_id="worker_abc")
+    def test_default_port_is_8551(self) -> None:
+        s = ClientSettings(site_id="any_site_name")
         assert s.flet_client_port == 8551
 
-    def test_site_id_without_underscore_falls_back_to_8551(self) -> None:
-        s = ClientSettings(site_id="standalone")
-        assert s.flet_client_port == 8551
+    def test_explicit_port_respected(self) -> None:
+        s = ClientSettings(flet_client_port=8553)
+        assert s.flet_client_port == 8553
+
+    def test_arbitrary_port_accepted(self) -> None:
+        """Any valid port number works — port is not tied to site_id naming."""
+        s = ClientSettings(flet_client_port=9000)
+        assert s.flet_client_port == 9000
 
 
 # ── site_secret ───────────────────────────────────────────────────────────────
 
 
 class TestSiteSecret:
-    """site_secret selects the correct per-site secret based on site_id."""
+    """site_secret reads directly from SITE_SECRET env var."""
 
-    @pytest.mark.parametrize("site_id,field_name,secret_val", [
-        ("site_1", "site_1_secret", "secret_for_1"),
-        ("site_2", "site_2_secret", "secret_for_2"),
-        ("site_3", "site_3_secret", "secret_for_3"),
-        ("site_4", "site_4_secret", "secret_for_4"),
-        ("site_5", "site_5_secret", "secret_for_5"),
-    ])
-    def test_correct_secret_selected(
-        self, site_id: str, field_name: str, secret_val: str
-    ) -> None:
-        s = ClientSettings(**{"site_id": site_id, field_name: secret_val})
-        assert s.site_secret == secret_val
-
-    def test_unknown_site_id_returns_empty_string(self) -> None:
-        s = ClientSettings(site_id="site_6", site_1_secret="s1", site_2_secret="s2")
+    def test_default_secret_is_empty(self) -> None:
+        s = ClientSettings()
         assert s.site_secret == ""
 
-    def test_inactive_site_secrets_not_leaked(self) -> None:
-        """site_secret returns only the active site's secret, not another site's."""
-        s = ClientSettings(
-            site_id="site_1",
-            site_1_secret="correct",
-            site_2_secret="wrong",
-        )
-        assert s.site_secret == "correct"
+    def test_secret_reads_from_env(self) -> None:
+        s = ClientSettings(site_secret="s3cr3t_value")
+        assert s.site_secret == "s3cr3t_value"
+
+    def test_secret_is_site_id_independent(self) -> None:
+        """Secret is the same regardless of site_id — no hardcoded mapping."""
+        s1 = ClientSettings(site_id="basel", site_secret="mypass")
+        s2 = ClientSettings(site_id="singapore", site_secret="mypass")
+        assert s1.site_secret == s2.site_secret == "mypass"
 
 
 # ── local_data_path ───────────────────────────────────────────────────────────

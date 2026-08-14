@@ -361,17 +361,23 @@ class TestRoundManager:
         r = asyncio.run(_run())
         assert r is not None and r.round_id == 1
 
-    def test_get_site_statuses_all_five_sites(self) -> None:
+    def test_get_site_statuses_empty_initially(self) -> None:
+        """No sites pre-registered at startup — populated dynamically on first update."""
         async def _run():
             return await self._make_rm().get_site_statuses()
         statuses = asyncio.run(_run())
-        assert set(statuses.keys()) == {f"site_{i}" for i in range(1, 6)}
+        assert statuses == {}
 
-    def test_get_site_statuses_all_idle(self) -> None:
+    def test_get_site_statuses_after_update(self) -> None:
+        """Status dict gains an entry once a site sends its first update."""
         async def _run():
-            return await self._make_rm().get_site_statuses()
+            rm = self._make_rm(min_sites=1)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            await rm.receive_update(_make_update("alpha", round_id=r.round_id))
+            return await rm.get_site_statuses()
         statuses = asyncio.run(_run())
-        assert all(v == "idle" for v in statuses.values())
+        assert "alpha" in statuses
 
     def test_current_global_weights_empty_initially(self) -> None:
         assert self._make_rm().current_global_weights == {}
@@ -428,8 +434,7 @@ class TestGetStatusSnapshot:
         assert snap["round_status"] == "idle"
         assert snap["model_version"] == 0
         assert snap["participating_sites"] == []
-        assert isinstance(snap["sites"], dict)
-        assert len(snap["sites"]) == 5  # site_1 … site_5
+        assert snap["sites"] == {}  # empty until sites connect
 
     def test_after_round_start_returns_collecting(self) -> None:
         async def _run() -> dict:

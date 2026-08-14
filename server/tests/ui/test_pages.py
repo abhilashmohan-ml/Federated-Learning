@@ -178,10 +178,11 @@ class TestDashboardPage:
         assert heading.size == 26
 
     def test_build_contains_site_cards_row(self) -> None:
+        """Cards row starts empty — populated dynamically as sites connect."""
         ctrl = DashboardPage(_mock_page()).build()
         col = ctrl.content
         site_row = next(c for c in col.controls if isinstance(c, ft.Row))
-        assert len(site_row.controls) == 5
+        assert len(site_row.controls) == 0
 
     def test_build_contains_round_timeline(self) -> None:
         ctrl = DashboardPage(_mock_page()).build()
@@ -189,6 +190,42 @@ class TestDashboardPage:
         # RoundTimeline.build() returns ft.Column
         timeline_cols = [c for c in col.controls if isinstance(c, ft.Column)]
         assert len(timeline_cols) >= 1
+
+    def test_update_sites_creates_cards_for_new_sites(self) -> None:
+        dash = DashboardPage(_mock_page())
+        added = dash.update_sites({"alpha": "idle", "beta": "training"})
+        assert added is True
+        assert set(dash.cards.keys()) == {"alpha", "beta"}
+
+    def test_update_sites_adds_controls_to_row(self) -> None:
+        dash = DashboardPage(_mock_page())
+        dash.update_sites({"alpha": "idle", "beta": "training"})
+        assert len(dash._cards_row.controls) == 2
+
+    def test_update_sites_returns_false_for_existing_sites(self) -> None:
+        dash = DashboardPage(_mock_page())
+        dash.update_sites({"alpha": "idle"})
+        added = dash.update_sites({"alpha": "done"})
+        assert added is False
+
+    def test_update_sites_updates_status_of_existing_card(self) -> None:
+        dash = DashboardPage(_mock_page())
+        dash.update_sites({"alpha": "idle"})
+        dash.update_sites({"alpha": "training"})
+        assert dash.cards["alpha"]._status_text.value == "TRAINING"
+
+    def test_update_sites_does_not_duplicate_cards(self) -> None:
+        dash = DashboardPage(_mock_page())
+        dash.update_sites({"alpha": "idle"})
+        dash.update_sites({"alpha": "done"})
+        assert len(dash.cards) == 1
+        assert len(dash._cards_row.controls) == 1
+
+    def test_update_sites_accepts_arbitrary_site_names(self) -> None:
+        dash = DashboardPage(_mock_page())
+        dash.update_sites({"basel_plant": "idle", "singapore": "done"})
+        assert "basel_plant" in dash.cards
+        assert "singapore" in dash.cards
 
 
 # ---------------------------------------------------------------------------

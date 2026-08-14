@@ -78,8 +78,7 @@ def main(page: ft.Page) -> None:
                         rid    = data.get("current_round_id", 0)
                         n_done = len(data.get("participating_sites", []))
 
-                        for card in dashboard.cards:
-                            card.set_status(sites.get(card.site_id, "idle"))
+                        dashboard.update_sites(sites)
                         dashboard.timeline.update(rid, sites)
 
                         if mv != last_model_version:
