@@ -105,40 +105,79 @@ class TestSettingsPage:
         page = _mock_page()
         assert SettingsPage(page).page is page
 
+    def test_init_refs_are_none(self) -> None:
+        page = _mock_page()
+        sp = SettingsPage(page)
+        assert sp._mode_radio is None
+        assert sp._quorum_field is None
+        assert sp._window_field is None
+        assert sp._heartbeat_field is None
+        assert sp._policy_status is None
+
     def test_build_returns_column(self) -> None:
         assert isinstance(SettingsPage(_mock_page()).build(), ft.Column)
 
-    def test_build_has_button(self) -> None:
+    def test_build_has_elevated_button(self) -> None:
         col = SettingsPage(_mock_page()).build()
-        assert any(isinstance(c, ft.Button) for c in col.controls)
+        assert any(isinstance(c, ft.ElevatedButton) for c in col.controls)
 
-    def test_build_button_icon_save(self) -> None:
+    def test_build_elevated_buttons_have_save_icon(self) -> None:
         col = SettingsPage(_mock_page()).build()
-        btn = next(c for c in col.controls if isinstance(c, ft.Button))
-        assert btn.icon == ft.Icons.SAVE
+        buttons = [c for c in col.controls if isinstance(c, ft.ElevatedButton)]
+        assert all(b.icon == ft.Icons.SAVE for b in buttons)
 
-    def test_build_has_data_table(self) -> None:
-        col = SettingsPage(_mock_page()).build()
-        assert any(isinstance(c, ft.DataTable) for c in col.controls)
+    def test_build_has_mode_radio_after_build(self) -> None:
+        page = _mock_page()
+        sp = SettingsPage(page)
+        sp.build()
+        assert sp._mode_radio is not None
 
-    def test_build_data_table_five_rows(self) -> None:
-        col = SettingsPage(_mock_page()).build()
-        table = next(c for c in col.controls if isinstance(c, ft.DataTable))
-        assert len(table.rows) == 5
+    def test_build_initializes_all_refs(self) -> None:
+        page = _mock_page()
+        sp = SettingsPage(page)
+        sp.build()
+        assert sp._mode_radio is not None
+        assert sp._quorum_field is not None
+        assert sp._window_field is not None
+        assert sp._heartbeat_field is not None
+        assert sp._policy_status is not None
 
-    def test_build_delete_buttons_icon_and_color(self) -> None:
-        col = SettingsPage(_mock_page()).build()
-        table = next(c for c in col.controls if isinstance(c, ft.DataTable))
-        for row in table.rows:
-            btn = row.cells[3].content
-            assert isinstance(btn, ft.IconButton)
-            assert btn.icon == ft.Icons.DELETE_OUTLINE
-            assert btn.icon_color == ft.Colors.RED_300
+    def test_on_mode_change_shows_window_field(self) -> None:
+        page = _mock_page()
+        page.update = MagicMock()
+        sp = SettingsPage(page)
+        sp.build()
+        event = MagicMock()
+        event.control.value = "time_window"
+        sp._on_mode_change(event)
+        assert sp._window_field.visible is True
+        assert sp._quorum_field.visible is False
+
+    def test_on_mode_change_shows_quorum_field(self) -> None:
+        page = _mock_page()
+        page.update = MagicMock()
+        sp = SettingsPage(page)
+        sp.build()
+        event = MagicMock()
+        event.control.value = "quorum"
+        sp._on_mode_change(event)
+        assert sp._quorum_field.visible is True
+        assert sp._window_field.visible is False
 
     def test_build_hyperparameter_row_count(self) -> None:
         col = SettingsPage(_mock_page()).build()
-        param_row = next(c for c in col.controls if isinstance(c, ft.Row))
-        assert len(param_row.controls) == 5
+        param_rows = [c for c in col.controls if isinstance(c, ft.Row)]
+        # One for hyperparameters, one for quorum/window fields
+        assert len(param_rows) >= 1
+        # First row should have 5 hyperparameter fields
+        first_row = param_rows[0]
+        assert len(first_row.controls) == 5
+
+    def test_build_no_hardcoded_site_rows(self) -> None:
+        """Ensure there are no hardcoded site_1..site_5 rows."""
+        col = SettingsPage(_mock_page()).build()
+        # There should be no DataTable in the new settings page
+        assert not any(isinstance(c, ft.DataTable) for c in col.controls)
 
 
 # ---------------------------------------------------------------------------
