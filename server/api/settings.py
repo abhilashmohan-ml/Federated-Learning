@@ -3,16 +3,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.api.auth import get_current_site
+from server.api.auth import get_current_site, require_admin_token
 from server.core.aggregation_policy import QuorumPolicy, TimeWindowPolicy
 from server.core.round_manager import RoundManager, get_round_manager
 from server.db.database import get_db
 from server.db.settings_store import SettingsStore
 
 router = APIRouter()
+
+# Keys whose values must be valid integers before we commit them to the DB.
+_NUMERIC_KEYS: frozenset[str] = frozenset(
+    {"quorum_min_sites", "time_window_seconds", "heartbeat_seconds"}
+)
 
 
 @router.get("")
@@ -29,15 +34,29 @@ async def update_settings(
     payload: dict[str, Any],
     db: AsyncSession = Depends(get_db),
     rm: RoundManager = Depends(get_round_manager),
-    _site: str = Depends(get_current_site),
+    _: None = Depends(require_admin_token),
 ) -> dict[str, Any]:
     """
     Update one or more settings keys and apply the new policy live.
+
+    Requires ``X-Admin-Key`` header matching the server's ``SECRET_KEY``.
+    Regular site JWT tokens are rejected with HTTP 403.
 
     Accepted keys: aggregation_mode ("quorum"|"time_window"),
                    quorum_min_sites (int str), time_window_seconds (int str),
                    heartbeat_seconds (int str).
     """
+    # Validate numeric fields BEFORE touching the database.
+    for key, value in payload.items():
+        if key in _NUMERIC_KEYS:
+            try:
+                int(value)
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid value for {key}: must be an integer",
+                )
+
     store = SettingsStore()
     for key, value in payload.items():
         await store.save(db, key, str(value))

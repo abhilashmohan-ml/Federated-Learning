@@ -37,13 +37,19 @@ def _db_override(session_local):
     return _get_db
 
 
-# ── Auth header helper ──────────────────────────────────────────────────────────
+# ── Auth header helpers ─────────────────────────────────────────────────────────
 
 def _auth_headers(site_id: str = "site_1") -> dict:
     """Return Authorization headers with a valid short-lived JWT for *site_id*."""
     s = get_settings()
     token, _ = _make_token(site_id, "client", timedelta(minutes=15), s.secret_key)
     return {"Authorization": f"Bearer {token}"}
+
+
+def _admin_headers() -> dict:
+    """Return X-Admin-Key header matching the server's secret_key."""
+    s = get_settings()
+    return {"X-Admin-Key": s.secret_key}
 
 
 # ── Mock RoundManager helper ────────────────────────────────────────────────────
@@ -118,7 +124,7 @@ class TestPutSettings:
                 ) as client:
                     return await client.put(
                         "/settings",
-                        headers=_auth_headers(),
+                        headers=_admin_headers(),
                         json={"aggregation_mode": "time_window"},
                     )
             finally:
@@ -144,7 +150,7 @@ class TestPutSettings:
                 ) as client:
                     return await client.put(
                         "/settings",
-                        headers=_auth_headers(),
+                        headers=_admin_headers(),
                         json={"aggregation_mode": "quorum"},
                     )
             finally:
@@ -169,7 +175,7 @@ class TestPutSettings:
                 ) as client:
                     await client.put(
                         "/settings",
-                        headers=_auth_headers(),
+                        headers=_admin_headers(),
                         json={"aggregation_mode": "time_window"},
                     )
                 return rm
@@ -179,8 +185,8 @@ class TestPutSettings:
         rm_after = asyncio.run(_run())
         rm_after.set_policy.assert_called_once()
 
-    def test_requires_auth_returns_401(self) -> None:
-        """PUT /settings without a token returns 401."""
+    def test_requires_admin_key_returns_403(self) -> None:
+        """PUT /settings without X-Admin-Key returns 403."""
         async def _run():
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -190,7 +196,45 @@ class TestPutSettings:
                 )
 
         r = asyncio.run(_run())
-        assert r.status_code == 401
+        assert r.status_code == 403
+
+    def test_put_settings_rejected_without_admin_auth(self) -> None:
+        """PUT /settings with a valid site JWT but no X-Admin-Key returns 403."""
+        async def _run():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                return await client.put(
+                    "/settings",
+                    headers=_auth_headers(),   # valid client JWT, but no admin key
+                    json={"aggregation_mode": "quorum"},
+                )
+
+        r = asyncio.run(_run())
+        assert r.status_code == 403
+
+    def test_put_settings_invalid_numeric_returns_422(self) -> None:
+        """PUT /settings with a non-integer numeric field returns 422 before DB write."""
+        async def _run():
+            session_local = await _make_session()
+            rm = _mock_rm()
+            app.dependency_overrides[get_db] = _db_override(session_local)
+            app.dependency_overrides[get_round_manager] = lambda: rm
+            try:
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    return await client.put(
+                        "/settings",
+                        headers=_admin_headers(),
+                        json={"quorum_min_sites": "not_a_number"},
+                    )
+            finally:
+                app.dependency_overrides.clear()
+
+        r = asyncio.run(_run())
+        assert r.status_code == 422
+        assert "Invalid value" in r.json()["detail"]
 
 
 # ══ GET /federation/current-round ════════════════════════════════════════════════

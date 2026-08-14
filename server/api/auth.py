@@ -61,7 +61,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt                  # python-jose: JWT encode/decode
 import bcrypt as _bcrypt                         # bcrypt password hashing
@@ -122,6 +122,33 @@ def _make_token(sub: str, role: str, expires: timedelta, key: str) -> tuple[str,
         algorithm=ALGORITHM,
     )
     return token, jti
+
+
+async def require_admin_token(
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    s: ServerSettings = Depends(get_settings),
+) -> None:
+    """
+    FastAPI dependency — verify that the request carries a valid X-Admin-Key header.
+
+    Only admin/server processes that know the server's secret_key may call
+    endpoints guarded by this dependency.  Regular site client JWTs are
+    explicitly insufficient — this enforces a separate privilege boundary.
+
+    Parameters
+    ----------
+    x_admin_key : str | None — value of the ``X-Admin-Key`` request header
+    s           : ServerSettings — for the ``secret_key`` comparison
+
+    Raises
+    ------
+    HTTPException 403 — if the header is absent or does not match ``secret_key``
+    """
+    if x_admin_key is None or x_admin_key != s.secret_key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
 
 
 async def get_current_site(

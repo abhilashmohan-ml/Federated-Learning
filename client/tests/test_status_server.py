@@ -10,9 +10,10 @@ from fastapi.testclient import TestClient
 # ─── helpers ────────────────────────────────────────────────────────────────────
 
 
-def _mock_settings(site_id: str = "test_site") -> MagicMock:
+def _mock_settings(site_id: str = "test_site", site_secret: str = "") -> MagicMock:
     s = MagicMock()
     s.site_id = site_id
+    s.site_secret = site_secret   # empty → auth not enforced (dev/test default)
     return s
 
 
@@ -122,6 +123,51 @@ class TestSiteStatusEndpoint:
             resp = TestClient(_app).get("/site/status")
         data = resp.json()
         assert set(data.keys()) == {"site_id", "run_count", "last_run_at", "phase"}
+
+    # ── Authentication enforcement ───────────────────────────────────────────────
+
+    def test_returns_401_when_site_secret_set_and_no_token(self) -> None:
+        """When SITE_SECRET is configured, requests without a token get 401."""
+        from client.comms.status_server import _app
+        with (
+            patch("client.comms.status_server.get_client_settings",
+                  return_value=_mock_settings("site_1", site_secret="my_secret")),
+            patch("client.comms.status_server.get_state",
+                  return_value=_mock_state()),
+        ):
+            resp = TestClient(_app, raise_server_exceptions=False).get("/site/status")
+        assert resp.status_code == 401
+
+    def test_returns_401_when_site_secret_set_and_wrong_token(self) -> None:
+        """When SITE_SECRET is configured, requests with the wrong token get 401."""
+        from client.comms.status_server import _app
+        with (
+            patch("client.comms.status_server.get_client_settings",
+                  return_value=_mock_settings("site_1", site_secret="my_secret")),
+            patch("client.comms.status_server.get_state",
+                  return_value=_mock_state()),
+        ):
+            resp = TestClient(_app, raise_server_exceptions=False).get(
+                "/site/status",
+                headers={"Authorization": "Bearer wrong_secret"},
+            )
+        assert resp.status_code == 401
+
+    def test_returns_200_when_site_secret_set_and_correct_token(self) -> None:
+        """When SITE_SECRET is configured, requests with the correct token succeed."""
+        from client.comms.status_server import _app
+        with (
+            patch("client.comms.status_server.get_client_settings",
+                  return_value=_mock_settings("site_1", site_secret="my_secret")),
+            patch("client.comms.status_server.get_state",
+                  return_value=_mock_state(run_count=2, phase="training")),
+        ):
+            resp = TestClient(_app).get(
+                "/site/status",
+                headers={"Authorization": "Bearer my_secret"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["run_count"] == 2
 
 
 # ─── start_status_server ────────────────────────────────────────────────────────

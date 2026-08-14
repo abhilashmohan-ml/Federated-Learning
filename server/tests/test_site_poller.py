@@ -40,10 +40,15 @@ def test_parse_skips_entries_without_colon() -> None:
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _make_settings(urls: str = "site_a:http://mock-site-a", hb: int = 0) -> MagicMock:
+def _make_settings(
+    urls: str = "site_a:http://mock-site-a",
+    hb: int = 0,
+    poll_secret: str = "",
+) -> MagicMock:
     s = MagicMock()
     s.heartbeat_seconds = hb
     s.site_status_urls = urls
+    s.site_poll_secret = poll_secret
     return s
 
 
@@ -204,3 +209,46 @@ async def test_run_loops_until_cancelled() -> None:
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+# ── Auth header forwarding ────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_poller_sends_auth_header_when_poll_secret_configured() -> None:
+    """When site_poll_secret is set, the poller includes Authorization: Bearer <secret>."""
+    rm = MagicMock()
+    settings = _make_settings("site_a:http://mock-site-a", poll_secret="test_poll_secret")
+
+    with respx.mock:
+        route = respx.get("http://mock-site-a/site/status").mock(
+            return_value=httpx.Response(200, json={
+                "site_id": "site_a", "run_count": 1,
+                "last_run_at": None, "phase": "idle",
+            })
+        )
+        poller = SitePoller(rm, settings)
+        await poller._poll_once()
+
+    assert route.called
+    auth_value = route.calls.last.request.headers.get("authorization")
+    assert auth_value == "Bearer test_poll_secret"
+
+
+@pytest.mark.asyncio
+async def test_poller_sends_no_auth_header_when_poll_secret_empty() -> None:
+    """When site_poll_secret is empty, the poller does not include an Authorization header."""
+    rm = MagicMock()
+    settings = _make_settings("site_a:http://mock-site-a", poll_secret="")
+
+    with respx.mock:
+        route = respx.get("http://mock-site-a/site/status").mock(
+            return_value=httpx.Response(200, json={
+                "site_id": "site_a", "run_count": 0,
+                "last_run_at": None, "phase": "idle",
+            })
+        )
+        poller = SitePoller(rm, settings)
+        await poller._poll_once()
+
+    assert route.called
+    assert "authorization" not in route.calls.last.request.headers

@@ -119,6 +119,10 @@ class ServerSettings(BaseSettings):
     # Comma-separated "site_id:base_url" pairs, e.g.:
     #   SITE_STATUS_URLS=site_a:http://localhost:9001,site_b:http://localhost:9002
     site_status_urls: str = ""
+    # Bearer secret the server uses when polling /site/status endpoints.
+    # Must match SITE_SECRET on each client container.  Leave empty to poll
+    # without authentication (dev / no-secret environments only).
+    site_poll_secret: str = ""
 
     @field_validator("cors_origins", mode="before")
     @classmethod

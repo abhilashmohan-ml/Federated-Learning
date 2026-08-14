@@ -64,12 +64,17 @@ class SitePoller:
 
     async def _poll_once(self) -> None:
         """Poll all configured sites once.  Extracted for testability."""
+        headers: dict[str, str] = {}
+        poll_secret: str = self._settings.site_poll_secret
+        if poll_secret:
+            headers["Authorization"] = f"Bearer {poll_secret}"
+
         async with httpx.AsyncClient(timeout=5.0) as client:
             for site_id, base_url in self._site_urls.items():
                 if not base_url:
                     continue
                 try:
-                    r = await client.get(f"{base_url}/site/status")
+                    r = await client.get(f"{base_url}/site/status", headers=headers)
                     if r.status_code == 200:
                         data: dict[str, object] = r.json()
                         remote_count = int(data.get("run_count", 0))  # type: ignore[arg-type]

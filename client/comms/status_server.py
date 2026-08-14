@@ -5,18 +5,30 @@ import threading
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from client.config import get_client_settings
 from client.engine.state import get_state
 
 _app = FastAPI(docs_url=None, redoc_url=None)   # no docs UI needed
+_bearer = HTTPBearer(auto_error=False)
 
 
 @_app.get("/site/status")
-def site_status() -> dict[str, Any]:
-    """Return site identity, run count, last run timestamp, and current phase."""
+def site_status(
+    credentials: HTTPAuthorizationCredentials | None = Security(_bearer),
+) -> dict[str, Any]:
+    """Return site identity, run count, last run timestamp, and current phase.
+
+    Authentication is enforced when ``SITE_SECRET`` is configured: the caller
+    must present ``Authorization: Bearer <SITE_SECRET>``.  When ``SITE_SECRET``
+    is empty (dev/test environments with no secret set), the endpoint is open.
+    """
     settings = get_client_settings()
+    if settings.site_secret:   # only enforce when SITE_SECRET is configured
+        if credentials is None or credentials.credentials != settings.site_secret:
+            raise HTTPException(status_code=401, detail="Unauthorized")
     s = get_state()
     return {
         "site_id":     settings.site_id,
