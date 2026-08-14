@@ -1,9 +1,12 @@
 """DataSource abstraction — dev (in-memory simulation) and prod (CSV directory polling)."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Protocol, Tuple
 
 import numpy as np
+import pandas as pd
 
 from shared.utils.logging_config import get_logger
 
@@ -62,3 +65,69 @@ class DevDataSource:
 
         log.debug("dev_data_generated", J0=round(J0, 2), k1=round(k1, 5))
         return time, flux, tmp
+
+
+class ProdDataSource:
+    """
+    Polls a data directory for new timestamped filtration CSVs.
+
+    Tracks processed filenames in a JSON sidecar (.processed.json) that
+    survives process restarts. Multiple new files are concatenated into one
+    dataset — one FL update per poll cycle regardless of how many files arrived.
+
+    File naming convention: filtration_YYYYMMDD_HHMMSS.csv
+    """
+
+    _SIDECAR_NAME = ".processed.json"
+
+    def __init__(self, data_dir: str) -> None:
+        self._dir = Path(data_dir)
+        self._sidecar = self._dir / self._SIDECAR_NAME
+        self._processed: set[str] = self._load_sidecar()
+
+    def _load_sidecar(self) -> set[str]:
+        if self._sidecar.exists():
+            return set(json.loads(self._sidecar.read_text()))
+        return set()
+
+    def _save_sidecar(self, names: set[str]) -> None:
+        tmp = self._sidecar.with_suffix(".tmp")
+        tmp.write_text(json.dumps(sorted(names)))
+        tmp.rename(self._sidecar)  # atomic on POSIX; near-atomic on Windows NTFS
+
+    def _new_files(self) -> list[Path]:
+        return [
+            f for f in sorted(self._dir.glob("filtration_*.csv"))
+            if f.name not in self._processed
+        ]
+
+    def has_new_data(self) -> bool:
+        """Lightweight check — does not mark files as processed."""
+        return bool(self._new_files())
+
+    def get_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return concatenated arrays from all new filtration CSVs and mark them processed."""
+        new_files = self._new_files()
+        if not new_files:
+            raise NoNewDataError(f"No new filtration_*.csv in {self._dir}")
+
+        required = {"time_min", "flux_lmh", "tmp_bar"}
+        dfs = []
+        for f in new_files:
+            df = pd.read_csv(f)
+            missing = required - set(df.columns)
+            if missing:
+                raise ValueError(f"{f.name} missing columns: {missing}")
+            dfs.append(df.dropna(subset=list(required)))
+
+        combined = pd.concat(dfs, ignore_index=True)
+
+        self._processed |= {f.name for f in new_files}
+        self._save_sidecar(self._processed)
+
+        log.info("prod_data_loaded", n_files=len(new_files), n_rows=len(combined))
+        return (
+            combined["time_min"].to_numpy(dtype=np.float64),
+            combined["flux_lmh"].to_numpy(dtype=np.float64),
+            combined["tmp_bar"].to_numpy(dtype=np.float64),
+        )
