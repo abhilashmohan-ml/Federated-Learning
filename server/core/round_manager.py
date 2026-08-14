@@ -60,6 +60,7 @@ from shared.schemas.federation import (
     FederationRound, ModelUpdate, RoundStatus, SiteStatus,
 )
 from server.core.aggregator import FedProxAggregator
+from server.core.aggregation_policy import AggregationPolicy, QuorumPolicy, TimeWindowPolicy
 from server.config import get_settings
 from shared.utils.logging_config import get_logger
 
@@ -95,6 +96,42 @@ class RoundManager:
 
         self._aggregator = FedProxAggregator()
         self._settings   = get_settings()
+
+        # Pluggable aggregation trigger policy (default: quorum of min_sites).
+        # Swap at runtime via set_policy() without restarting the server.
+        self._policy: AggregationPolicy = QuorumPolicy(
+            min_sites=self._settings.min_sites_per_round
+        )
+
+        # Per-site run tracking — starts empty, populated dynamically.
+        # Never initialise with hardcoded site names.
+        self._site_run_counts:  Dict[str, int]               = {}
+        self._site_last_run_at: Dict[str, Optional[datetime]] = {}
+
+    def set_policy(self, policy: AggregationPolicy) -> None:
+        """Swap the aggregation policy live (no in-flight round is affected)."""
+        self._policy = policy
+
+    async def get_or_create_round(self) -> FederationRound:
+        """Return the current COLLECTING round, or start a new one if none is open."""
+        if self._current_round_id > 0:
+            current = self._rounds.get(self._current_round_id)
+            if current and current.status == RoundStatus.COLLECTING:
+                return current
+        return await self.start_new_round()
+
+    def sync_site_run_info(
+        self, site_id: str, remote_count: int, last_run_at: Optional[datetime]
+    ) -> None:
+        """Update run count from heartbeat poller — only increases, never decreases."""
+        if remote_count > self._site_run_counts.get(site_id, 0):
+            self._site_run_counts[site_id] = remote_count
+            if last_run_at is not None:
+                self._site_last_run_at[site_id] = last_run_at
+
+    def mark_site_error(self, site_id: str) -> None:
+        """Mark a site as unreachable (called by SitePoller on connection failure)."""
+        self._site_statuses[site_id] = SiteStatus.ERROR
 
     async def start_new_round(self) -> FederationRound:
         """
@@ -153,6 +190,10 @@ class RoundManager:
         # Mark this site as DONE (dashboard will show it in green)
         self._site_statuses[update.site_id] = SiteStatus.DONE
 
+        # Track per-site run statistics
+        self._site_run_counts[update.site_id] = self._site_run_counts.get(update.site_id, 0) + 1
+        self._site_last_run_at[update.site_id] = datetime.now(timezone.utc)
+
         log.info(
             "update_received",
             site=update.site_id,
@@ -160,9 +201,14 @@ class RoundManager:
             n_updates=len(self._updates[rid]),
         )
 
-        # Trigger aggregation when the quorum threshold is reached.
-        # `min_sites_per_round` is configurable — default 3 out of 5 sites.
-        if len(self._updates[rid]) >= self._settings.min_sites_per_round:
+        # Delegate to the pluggable aggregation policy instead of a hardcoded threshold.
+        elapsed = (datetime.now(timezone.utc) - self._rounds[rid].started_at).total_seconds()
+        sites_contributed = set(self._rounds[rid].participating_sites)
+        if self._policy.should_aggregate(
+            updates_since_last=len(self._updates[rid]),
+            sites_contributed=sites_contributed,
+            elapsed_seconds=elapsed,
+        ):
             await self._aggregate(rid)
 
     async def _timeout_guard(self, round_id: int) -> None:
@@ -176,8 +222,13 @@ class RoundManager:
         The guard checks whether the round is still COLLECTING before acting —
         if aggregation already completed (quorum reached), this is a no-op.
         """
-        # Sleep for the configured timeout period
-        await asyncio.sleep(self._settings.round_timeout_seconds)
+        # Use the policy's window when TimeWindowPolicy is active; otherwise use config timeout.
+        timeout = (
+            self._policy.window_seconds
+            if isinstance(self._policy, TimeWindowPolicy)
+            else self._settings.round_timeout_seconds
+        )
+        await asyncio.sleep(timeout)
 
         if self._rounds[round_id].status == RoundStatus.COLLECTING:
             log.info("round_timeout", round_id=round_id)
@@ -257,11 +308,16 @@ class RoundManager:
         """
         round_ = self._rounds.get(self._current_round_id)
         return {
-            "current_round_id": self._current_round_id,
-            "round_status": round_.status.value if round_ else "idle",
-            "sites": await self.get_site_statuses(),
-            "model_version":     self._model_version,
+            "current_round_id":    self._current_round_id,
+            "round_status":        round_.status.value if round_ else "idle",
+            "sites":               await self.get_site_statuses(),
+            "model_version":       self._model_version,
             "participating_sites": list(round_.participating_sites) if round_ else [],
+            "run_counts":          dict(self._site_run_counts),
+            "last_run_at": {
+                k: v.isoformat() if v else None
+                for k, v in self._site_last_run_at.items()
+            },
         }
 
     @property
