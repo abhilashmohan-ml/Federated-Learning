@@ -172,3 +172,17 @@ async def list_sites(
     dict — {"sites": {"site_1": "idle", "site_2": "done", ...}}
     """
     return {"sites": await rm.get_site_statuses()}
+
+
+@router.get("/current-round", response_model=FederationRound)
+async def get_current_round(
+    rm: RoundManager = Depends(get_round_manager),
+    _site: str = Depends(get_current_site),
+) -> FederationRound:
+    """
+    GET /federation/current-round — return the open COLLECTING round, or start one.
+
+    Used by prod-mode clients that push updates without waiting for a server-
+    initiated round. Idempotent: returns the same round if already collecting.
+    """
+    return await rm.get_or_create_round()

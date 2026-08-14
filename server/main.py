@@ -57,7 +57,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from server.api import auth, federation, models, health, internal   # our API modules
+from server.api import settings as settings_api
 from server.config import get_settings
+from server.core.aggregation_policy import QuorumPolicy, TimeWindowPolicy
+from server.core.round_manager import get_round_manager
+from server.core.site_poller import SitePoller
+from server.db.database import AsyncSessionLocal
+from server.db.settings_store import SettingsStore
 from shared.utils.logging_config import configure_logging
 
 # Configure structured logging before anything else
@@ -100,11 +106,35 @@ else:
 #
 # `prefix` prepends a path to every route in that router.
 # `tags` groups the endpoints under a named section in the /docs UI.
-app.include_router(auth.router,       prefix="/auth",       tags=["auth"])
-app.include_router(federation.router, prefix="/federation", tags=["federation"])
-app.include_router(models.router,     prefix="/models",     tags=["models"])
-app.include_router(health.router,     prefix="/health",     tags=["health"])
-app.include_router(internal.router,   prefix="/internal",   tags=["internal"])
+app.include_router(auth.router,          prefix="/auth",       tags=["auth"])
+app.include_router(federation.router,    prefix="/federation", tags=["federation"])
+app.include_router(models.router,        prefix="/models",     tags=["models"])
+app.include_router(health.router,        prefix="/health",     tags=["health"])
+app.include_router(internal.router,      prefix="/internal",   tags=["internal"])
+app.include_router(settings_api.router,  prefix="/settings",   tags=["settings"])
+
+
+@app.on_event("startup")  # type: ignore[attr-defined]
+async def _on_startup() -> None:
+    """Load persisted policy config and start the site heartbeat poller."""
+    try:
+        async with AsyncSessionLocal() as db:
+            config = await SettingsStore().load(db)
+    except Exception:
+        config = {}
+
+    rm = get_round_manager()
+    mode = config.get("aggregation_mode", "quorum")
+    if mode == "time_window":
+        rm.set_policy(
+            TimeWindowPolicy(window_seconds=int(config.get("time_window_seconds", "1800")))
+        )
+    else:
+        rm.set_policy(
+            QuorumPolicy(min_sites=int(config.get("quorum_min_sites", "3")))
+        )
+
+    SitePoller(rm, get_settings()).start()
 
 
 if __name__ == "__main__":
