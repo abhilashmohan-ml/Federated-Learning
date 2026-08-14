@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import time
 import threading
+from typing import Optional
 
 from client.comms.fl_client      import FLClient
 from client.engine.local_trainer  import LocalTrainer
@@ -122,7 +123,7 @@ def _watch() -> None:
         time.sleep(POLL_SECONDS)
 
 
-def start_scheduler(data_source: object = None) -> None:
+def start_scheduler(data_source: Optional[object] = None) -> None:
     """
     Start the round-watcher scheduler as a background daemon thread.
 

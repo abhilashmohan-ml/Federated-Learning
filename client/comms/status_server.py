@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI
@@ -13,7 +14,7 @@ _app = FastAPI(docs_url=None, redoc_url=None)   # no docs UI needed
 
 
 @_app.get("/site/status")
-def site_status() -> dict:
+def site_status() -> dict[str, Any]:
     """Return site identity, run count, last run timestamp, and current phase."""
     settings = get_client_settings()
     s = get_state()
