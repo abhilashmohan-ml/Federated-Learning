@@ -31,6 +31,8 @@ class TestSiteCard:
         card = SiteCard("site_1")
         assert card.site_id == "site_1"
         assert card._status_text.value == "IDLE"
+        assert card._runs_text.value == "Runs: --"
+        assert card._last_text.value == "Last: --"
 
     def test_init_custom(self) -> None:
         card = SiteCard("site_2")
@@ -52,16 +54,47 @@ class TestSiteCard:
         card.set_status("UNKNOWN")
         assert card._status_text.color == ft.Colors.GREY
 
+    def test_set_run_info_shows_count(self) -> None:
+        card = SiteCard("test_site")
+        card.set_run_info(5, None)
+        assert "5" in card._runs_text.value
+
+    def test_set_run_info_no_timestamp_shows_dash(self) -> None:
+        card = SiteCard("test_site")
+        card.set_run_info(0, None)
+        assert card._last_text.value == "Last: --"
+
+    def test_set_run_info_today_shows_time(self) -> None:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        card = SiteCard("test_site")
+        card.set_run_info(1, now)
+        # Today's date — should show HH:MM format
+        assert ":" in card._last_text.value
+        assert "Last:" in card._last_text.value
+
+    def test_set_run_info_old_date_shows_day_month(self) -> None:
+        card = SiteCard("test_site")
+        card.set_run_info(3, "2025-01-15T10:30:00+00:00")
+        # Old date — should show "15 Jan" format
+        assert "Jan" in card._last_text.value or "15" in card._last_text.value
+
+    def test_set_run_info_invalid_timestamp_truncates(self) -> None:
+        card = SiteCard("test_site")
+        card.set_run_info(1, "not-a-date")
+        # Falls back to last_run_at[:16]
+        assert card._last_text.value == "Last: not-a-date"
+
     def test_build_site_id_in_text(self) -> None:
         col = SiteCard("site_3").build().content.content
         texts = [c.value for c in col.controls if isinstance(c, ft.Text)]
         assert "site_3" in texts
 
-    def test_build_lrv_amin_in_text(self) -> None:
+    def test_build_runs_and_last_in_text(self) -> None:
         col = SiteCard("site_1").build().content.content
         texts = [c.value for c in col.controls if isinstance(c, ft.Text)]
-        assert any("LRV: --" in v for v in texts)
-        assert any("Amin: -- m2" in v for v in texts)
+        assert any("Runs: --" in v for v in texts)
+        assert any("Last: --" in v for v in texts)
 
 
 # ---------------------------------------------------------------------------
