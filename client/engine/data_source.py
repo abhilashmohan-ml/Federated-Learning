@@ -29,7 +29,7 @@ class DataSource(Protocol):
     """Protocol (interface) for all data sources. Returns (time_min, flux_lmh, tmp_bar)."""
 
     def get_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        ...
+        ...  # pragma: no cover
 
 
 class DevDataSource:
