@@ -107,6 +107,14 @@ async def test_status_snapshot_includes_run_info() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sync_site_run_info_higher_count_no_timestamp() -> None:
+    rm = RoundManager()
+    rm.sync_site_run_info("site_z", 3, None)
+    assert rm._site_run_counts["site_z"] == 3
+    assert "site_z" not in rm._site_last_run_at
+
+
+@pytest.mark.asyncio
 async def test_mark_site_error_sets_error_status() -> None:
     from shared.schemas.federation import SiteStatus
     rm = RoundManager()
