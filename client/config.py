@@ -86,6 +86,24 @@ class ClientSettings(BaseSettings):
     # ── UI ──────────────────────────────────────────────────────────────────────
     flet_client_port: int = 8551          # FLET_CLIENT_PORT env var
 
+    # ── Dev-mode simulation ──────────────────────────────────────────────────────
+    dev_mode:            bool  = False  # True → DevDataSource; False → ProdDataSource
+    dev_jitter_fraction: float = 0.05   # ±% Gaussian jitter on J0/k1/k2 each round
+
+    # Physics params for DevDataSource — set per site to create inter-site variance.
+    # Defaults match PHYSICS_DEFAULTS in client/engine/data_source.py.
+    dev_j0:       float = 150.0   # DEV_J0   env var — initial flux (L m⁻² h⁻¹)
+    dev_k1:       float = 0.015   # DEV_K1   env var — Combined 1-A rate constant
+    dev_k2:       float = 0.0020  # DEV_K2   env var
+    dev_noise:    float = 2.0     # DEV_NOISE env var — flux noise σ
+    dev_tmp_base: float = 1.0     # DEV_TMP_BASE env var — initial TMP (bar)
+
+    # ── Prod-mode data polling ───────────────────────────────────────────────────
+    data_poll_seconds:   int   = 60     # how often ProdDataSource checks for new CSVs
+
+    # ── Internal status server ───────────────────────────────────────────────────
+    client_status_port: int = 9001  # CLIENT_STATUS_PORT env var (server polls this)
+
     # ── Logging ─────────────────────────────────────────────────────────────────
     log_level:       str   = "INFO"   # DEBUG | INFO | WARNING | ERROR
 

@@ -55,19 +55,88 @@ class TestModuleLevelCode:
 
 
 class TestBackground:
-    """_background() must invoke both service starters exactly once."""
+    """_background() must invoke all service starters exactly once."""
 
-    def test_calls_start_heartbeat_and_start_scheduler(self) -> None:
-        """_background() calls start_heartbeat() then start_scheduler(), each once."""
+    def _mock_cfg(self, dev_mode: bool = True) -> MagicMock:
+        cfg = MagicMock()
+        cfg.dev_mode = dev_mode
+        cfg.dev_j0 = 150.0
+        cfg.dev_k1 = 0.015
+        cfg.dev_k2 = 0.002
+        cfg.dev_noise = 2.0
+        cfg.dev_tmp_base = 1.0
+        cfg.dev_jitter_fraction = 0.05
+        cfg.client_status_port = 9001
+        cfg.local_data_path = "data/site_1/filtration.csv"
+        cfg.site_id = "site_1"
+        return cfg
+
+    def test_dev_mode_creates_dev_data_source_and_starts_services(self) -> None:
+        """dev_mode=True: DevDataSource constructed; heartbeat, status server, scheduler started."""
         import client.main  # noqa: PLC0415
 
-        with patch("client.main.start_heartbeat") as mock_hb, patch(
-            "client.main.start_scheduler"
-        ) as mock_sched:
+        mock_cfg = self._mock_cfg(dev_mode=True)
+        mock_ds = MagicMock()
+
+        with (
+            patch("client.main.start_heartbeat") as mock_hb,
+            patch("client.main.start_scheduler") as mock_sched,
+            patch("client.main.start_status_server") as mock_status,
+            patch("client.main.get_client_settings", return_value=mock_cfg),
+            patch("client.main.DevDataSource", return_value=mock_ds) as mock_dev_cls,
+        ):
             client.main._background()
 
         mock_hb.assert_called_once_with()
-        mock_sched.assert_called_once_with()
+        mock_dev_cls.assert_called_once_with(
+            {
+                "J0": 150.0, "k1": 0.015, "k2": 0.002,
+                "noise": 2.0, "tmp_base": 1.0,
+            },
+            jitter=0.05,
+        )
+        mock_status.assert_called_once_with(9001)
+        mock_sched.assert_called_once_with(data_source=mock_ds)
+
+    def test_prod_mode_creates_prod_data_source_and_starts_services(self) -> None:
+        """dev_mode=False: ProdDataSource constructed with data_dir; services started."""
+        import client.main  # noqa: PLC0415
+
+        mock_cfg = self._mock_cfg(dev_mode=False)
+        mock_cfg.local_data_path = "data/site_1/filtration.csv"
+        mock_ds = MagicMock()
+
+        with (
+            patch("client.main.start_heartbeat"),
+            patch("client.main.start_scheduler"),
+            patch("client.main.start_status_server"),
+            patch("client.main.get_client_settings", return_value=mock_cfg),
+            patch("client.main.ProdDataSource", return_value=mock_ds) as mock_prod_cls,
+        ):
+            client.main._background()
+
+        # data_dir should be "data/site_1" (dirname of the local_data_path)
+        mock_prod_cls.assert_called_once_with("data/site_1")
+
+    def test_prod_mode_falls_back_to_site_dir_when_path_has_no_dir(self) -> None:
+        """When dirname(local_data_path) is empty, fall back to data/<site_id>."""
+        import client.main  # noqa: PLC0415
+
+        mock_cfg = self._mock_cfg(dev_mode=False)
+        mock_cfg.local_data_path = "filtration.csv"   # no directory component
+        mock_cfg.site_id = "singapore"
+        mock_ds = MagicMock()
+
+        with (
+            patch("client.main.start_heartbeat"),
+            patch("client.main.start_scheduler"),
+            patch("client.main.start_status_server"),
+            patch("client.main.get_client_settings", return_value=mock_cfg),
+            patch("client.main.ProdDataSource", return_value=mock_ds) as mock_prod_cls,
+        ):
+            client.main._background()
+
+        mock_prod_cls.assert_called_once_with("data/singapore")
 
 
 # ── 3. __main__ block ─────────────────────────────────────────────────────────

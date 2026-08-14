@@ -361,6 +361,8 @@ class TestTrainingState:
             last_lrv=None, last_amin=None,
             last_flux_ratio=None, last_hermia_model=None,
             last_round_completed=0,
+            run_count=0,
+            last_run_at=None,
         )
 
     def test_initial_defaults(self) -> None:
@@ -373,6 +375,8 @@ class TestTrainingState:
         assert s.last_flux_ratio is None
         assert s.last_hermia_model is None
         assert s.last_round_completed == 0
+        assert s.run_count == 0
+        assert s.last_run_at is None
 
     def test_update_single_field(self) -> None:
         from client.engine.state import get_state, update_state

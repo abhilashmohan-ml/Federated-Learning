@@ -122,13 +122,18 @@ def _watch() -> None:
         time.sleep(POLL_SECONDS)
 
 
-def start_scheduler() -> None:
+def start_scheduler(data_source: object = None) -> None:
     """
     Start the round-watcher scheduler as a background daemon thread.
 
     Called once from client/main.py at startup. The thread runs for the
     entire lifetime of the client process and cannot be stopped externally
     (other than by the process exiting).
+
+    Args:
+        data_source: DataSource instance to use for local training (wired in Task 5).
+                     Accepted here so main.py can pass it; _watch() will use it once
+                     Task 5 threads the argument through.
 
     Thread name "fl-scheduler" appears in log messages and OS process views,
     making it easy to identify in debugging.

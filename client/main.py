@@ -44,11 +44,14 @@ PYTHON CONCEPT: `if __name__ == "__main__":`
   as a module, __name__ is set to the module name instead. This idiom prevents
   the startup code from running on import.
 """
+import os
 import threading      # standard library: create concurrent threads
 import flet as ft     # Flet: Python framework for building web/desktop UI
 
 from client.ui.app          import main as flet_main   # Flet page builder function
 from client.comms.heartbeat import start_heartbeat      # starts the ping thread
+from client.comms.status_server import start_status_server  # per-site status HTTP server
+from client.engine.data_source import DevDataSource, ProdDataSource
 from client.engine.scheduler import start_scheduler     # starts the round-watcher thread
 from client.config           import get_client_settings
 from shared.utils.logging_config import configure_logging
@@ -62,13 +65,34 @@ def _background() -> None:
     """
     Start all background service threads.
 
-    This function runs in its own thread (not the main thread). It calls
-    `start_heartbeat()` and `start_scheduler()` which each spawn their
-    own daemon threads internally. After starting them, this function returns —
-    the spawned threads keep running independently.
+    This function runs in its own thread (not the main thread). It:
+      1. Starts the heartbeat thread (keep-alive pings to the FL server)
+      2. Selects a DataSource based on dev_mode config (DevDataSource or ProdDataSource)
+      3. Starts the per-site status HTTP server on client_status_port
+      4. Starts the scheduler thread (polls for rounds and triggers local training)
+
+    All spawned sub-threads are daemon threads that keep running independently
+    after this function returns.
     """
     start_heartbeat()    # begins pinging the server every 30 seconds
-    start_scheduler()    # begins polling for new FL rounds
+
+    cfg = get_client_settings()
+
+    if cfg.dev_mode:
+        physics = {
+            "J0":       cfg.dev_j0,
+            "k1":       cfg.dev_k1,
+            "k2":       cfg.dev_k2,
+            "noise":    cfg.dev_noise,
+            "tmp_base": cfg.dev_tmp_base,
+        }
+        data_source = DevDataSource(physics, jitter=cfg.dev_jitter_fraction)
+    else:
+        data_dir = os.path.dirname(cfg.local_data_path) or f"data/{cfg.site_id}"
+        data_source = ProdDataSource(data_dir)
+
+    start_status_server(cfg.client_status_port)
+    start_scheduler(data_source=data_source)   # data_source wired through in Task 5
 
 
 if __name__ == "__main__":
