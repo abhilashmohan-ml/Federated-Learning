@@ -1,113 +1,54 @@
-"""
-FL round watcher (scheduler) — polls the server and triggers local training.
-
-WHAT THIS MODULE DOES
-----------------------
-The scheduler is the "main loop" of the FL client. It runs as a background
-thread, continuously asking the server: "Is there a new round for me to join?"
-
-When a new round in "collecting" status is detected, the scheduler:
-  1. Runs local training (LocalTrainer.train_and_prepare_update)
-  2. Uploads the resulting model update (FLClient.upload_update)
-  3. Records the round_id so it doesn't reprocess the same round
-
-This polling approach means each site independently decides when to participate.
-Sites don't need to be synchronised with each other — a slow site can submit
-its update late (up to round_timeout_seconds after the round starts) and the
-server will wait.
-
-POLLING INTERVAL
------------------
-The scheduler polls every POLL_SECONDS = 15 seconds. This is a deliberate
-trade-off:
-  - Too frequent (e.g., 1s): unnecessary server load, round detection latency
-    is already < 1s which adds no value
-  - Too infrequent (e.g., 60s): slow round participation; sites take up to 60s
-    to notice a round started, delaying convergence
-
-TOKEN REFRESH
---------------
-Round status polls go through FLClient.get_round_status() which handles
-401 responses by refreshing the JWT token and retrying exactly once —
-the same pattern as upload_update() and start_round(). This keeps the
-scheduler alive across long idle periods (> 15-minute token lifetime)
-without requiring a full re-authentication.
-
-PYTHON CONCEPT: threading.Thread with daemon=True
-  A daemon thread exits when the main thread (the Flet UI) exits.
-  If we used a non-daemon thread, Python would wait for the scheduler to
-  finish before the process could exit — which would never happen because
-  the while-loop runs forever. Daemon threads allow clean shutdown.
-
-PYTHON CONCEPT: infinite while loop with time.sleep()
-  `while True:` runs forever. `time.sleep(POLL_SECONDS)` pauses execution
-  for 15 seconds between iterations. This is appropriate for a background
-  polling task that should run for the lifetime of the process.
-"""
+# client/engine/scheduler.py
+"""FL round watcher — dev mode: server-initiated rounds; prod mode: data-directory polling."""
 from __future__ import annotations
 
 import time
 import threading
-from typing import Optional
+from datetime import datetime, timezone
 
-from client.comms.fl_client      import FLClient
+from client.comms.fl_client       import FLClient
+from client.engine.data_source    import DataSource, DevDataSource, ProdDataSource, NoNewDataError
 from client.engine.local_trainer  import LocalTrainer
-from client.engine.state          import update_state
+from client.engine.state          import get_state, update_state
 from shared.utils.logging_config  import get_logger
 
 log = get_logger(__name__)
 
-# How often to check if the server has started a new round (seconds)
-POLL_SECONDS = 15
+POLL_SECONDS = 15   # dev mode: how often to check server for new round
 
 
-def _watch() -> None:
-    """
-    Main loop for the round-watching scheduler thread.
-
-    Runs until the process exits. On each iteration:
-      1. Fetch the next expected round (last_seen_round + 1) from the server
-      2. If a "collecting" round is found, train locally and upload the update
-      3. Sleep for POLL_SECONDS, then repeat
-
-    The `last_seen_round` counter prevents re-processing a round that was
-    already handled in a previous iteration. When round 3 is handled,
-    `last_seen_round` becomes 3, so we only watch for round 4 next time.
-    """
-    fl      = FLClient()      # HTTP client with retry, SSL, auth, token refresh
-    trainer = LocalTrainer()  # local fitting engine
-
-    # Authenticate on startup — obtain access + refresh tokens
+def _watch_dev(fl: FLClient, trainer: LocalTrainer) -> None:
+    """Dev mode: poll server for server-initiated rounds, train with fresh simulated data."""
     try:
         fl.authenticate()
     except Exception as exc:
         log.error("auth_failed_on_start", error=str(exc))
-        return   # if we can't authenticate, there's no point polling
+        return
 
-    last_seen_round = 0   # we have not participated in any round yet
+    last_seen_round = 0
 
     while True:
         try:
-            # get_round_status returns None (404) when the round doesn't exist yet,
-            # or the round dict on 200. It auto-refreshes the JWT on 401.
             data = fl.get_round_status(last_seen_round + 1)
             if data is not None:
                 rid    = data.get("round_id", 0)
                 status = data.get("status", "")
 
-                # Only train for rounds we haven't seen before that are in COLLECTING state
                 if rid > last_seen_round and status == "collecting":
-                    log.info("new_round", round_id=rid)
-
+                    log.info("new_round_dev", round_id=rid)
                     update_state(phase="training", current_round_id=rid)
                     update = trainer.train_and_prepare_update(rid)
 
                     update_state(phase="uploading")
                     fl.upload_update(update)
 
+                    now = datetime.now(timezone.utc).isoformat()
+                    state = get_state()
                     update_state(
                         phase="done",
                         last_round_completed=rid,
+                        run_count=state.run_count + 1,
+                        last_run_at=now,
                         last_flux_ratio=update.local_metrics.get("flux_ratio"),
                         last_amin=update.local_metrics.get("amin_m2"),
                         last_hermia_model=update.hermia_best_model,
@@ -118,25 +59,70 @@ def _watch() -> None:
             update_state(phase="error")
             log.warning("scheduler_poll_error", error=str(exc))
 
-        # Wait before the next poll.
-        # `time.sleep()` releases the GIL, allowing other threads to run.
         time.sleep(POLL_SECONDS)
 
 
-def start_scheduler(data_source: Optional[object] = None) -> None:
+def _watch_prod(
+    fl: FLClient,
+    trainer: LocalTrainer,
+    prod_source: ProdDataSource,
+    poll_seconds: int,
+) -> None:
+    """Prod mode: poll data directory; push update to server when new CSVs arrive."""
+    try:
+        fl.authenticate()
+    except Exception as exc:
+        log.error("auth_failed_on_start", error=str(exc))
+        return
+
+    while True:
+        try:
+            if prod_source.has_new_data():
+                update_state(phase="training")
+                current_round = fl.get_current_round()
+                update = trainer.train_and_prepare_update(current_round.round_id)
+
+                update_state(phase="uploading")
+                fl.upload_update(update)
+
+                now = datetime.now(timezone.utc).isoformat()
+                state = get_state()
+                update_state(
+                    phase="done",
+                    last_round_completed=current_round.round_id,
+                    run_count=state.run_count + 1,
+                    last_run_at=now,
+                    last_flux_ratio=update.local_metrics.get("flux_ratio"),
+                    last_amin=update.local_metrics.get("amin_m2"),
+                    last_hermia_model=update.hermia_best_model,
+                )
+        except NoNewDataError:
+            pass    # expected — no data this cycle
+        except Exception as exc:
+            update_state(phase="error")
+            log.warning("prod_poll_error", error=str(exc))
+
+        time.sleep(poll_seconds)
+
+
+def start_scheduler(data_source: DataSource) -> None:
     """
-    Start the round-watcher scheduler as a background daemon thread.
+    Start the appropriate scheduler thread based on data source type.
 
-    Called once from client/main.py at startup. The thread runs for the
-    entire lifetime of the client process and cannot be stopped externally
-    (other than by the process exiting).
-
-    Args:
-        data_source: DataSource instance to use for local training (wired in Task 5).
-                     Accepted here so main.py can pass it; _watch() will use it once
-                     Task 5 threads the argument through.
-
-    Thread name "fl-scheduler" appears in log messages and OS process views,
-    making it easy to identify in debugging.
+    Dev mode (DevDataSource)  → _watch_dev thread
+    Prod mode (ProdDataSource) → _watch_prod thread
     """
-    threading.Thread(target=_watch, daemon=True, name="fl-scheduler").start()
+    from client.config import get_client_settings
+    settings = get_client_settings()
+    fl       = FLClient()
+    trainer  = LocalTrainer(data_source=data_source)
+
+    if isinstance(data_source, ProdDataSource):
+        target = lambda: _watch_prod(fl, trainer, data_source, settings.data_poll_seconds)
+        name   = "fl-scheduler-prod"
+    else:
+        target = lambda: _watch_dev(fl, trainer)
+        name   = "fl-scheduler-dev"
+
+    threading.Thread(target=target, daemon=True, name=name).start()
+    log.info("scheduler_started", mode="prod" if isinstance(data_source, ProdDataSource) else "dev")

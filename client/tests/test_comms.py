@@ -895,3 +895,95 @@ class TestGetRoundStatus:
             result = fl.get_round_status(1)
 
         assert result is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FLClient — get_current_round
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestGetCurrentRound:
+    def test_success_returns_federation_round(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json(round_id=7, status="collecting"))
+        from shared.schemas.federation import FederationRound
+
+        with patch.object(fl, "_request", return_value=resp):
+            result = fl.get_current_round()
+
+        assert isinstance(result, FederationRound)
+        assert result.round_id == 7
+
+    def test_gets_current_round_url(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json())
+
+        with patch.object(fl, "_request", return_value=resp) as mock_req:
+            fl.get_current_round()
+
+        args = mock_req.call_args.args
+        assert args[0] == "GET"
+        assert args[1] == "http://localhost:8000/federation/current-round"
+
+    def test_auth_headers_included(self) -> None:
+        fl = _build_fl_client()
+        fl._access_token = "tok_prod"
+        resp = _mock_resp(200, _make_round_json())
+
+        with patch.object(fl, "_request", return_value=resp) as mock_req:
+            fl.get_current_round()
+
+        headers = mock_req.call_args.kwargs["headers"]
+        assert headers == {"Authorization": "Bearer tok_prod"}
+
+    def test_401_triggers_do_refresh_then_retries(self) -> None:
+        fl = _build_fl_client()
+        resp_401 = _mock_resp(401)
+        resp_200 = _mock_resp(200, _make_round_json(round_id=2))
+
+        with (
+            patch.object(fl, "_request", side_effect=[resp_401, resp_200]) as mock_req,
+            patch.object(fl, "_do_refresh") as mock_refresh,
+        ):
+            result = fl.get_current_round()
+
+        assert mock_req.call_count == 2
+        mock_refresh.assert_called_once()
+        assert result.round_id == 2
+
+    def test_no_refresh_on_200(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json())
+
+        with (
+            patch.object(fl, "_request", return_value=resp),
+            patch.object(fl, "_do_refresh") as mock_refresh,
+        ):
+            fl.get_current_round()
+
+        mock_refresh.assert_not_called()
+
+    def test_calls_raise_for_status(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json())
+
+        with patch.object(fl, "_request", return_value=resp):
+            fl.get_current_round()
+
+        resp.raise_for_status.assert_called_once()
+
+    def test_logs_current_round_fetched_on_success(self) -> None:
+        fl = _build_fl_client()
+        resp = _mock_resp(200, _make_round_json(round_id=4))
+
+        with (
+            patch.object(fl, "_request", return_value=resp),
+            patch("client.comms.fl_client.log") as mock_log,
+        ):
+            fl.get_current_round()
+
+        mock_log.info.assert_called_once_with(
+            "current_round_fetched",
+            site=fl.settings.site_id,
+            round_id=4,
+        )

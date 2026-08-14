@@ -318,6 +318,23 @@ class FLClient:
         resp.raise_for_status()
         return resp.json()  # type: ignore[no-any-return]
 
+    def get_current_round(self) -> FederationRound:
+        """
+        GET /federation/current-round — return the currently COLLECTING round,
+        or ask the server to start a new one if none is open.
+
+        Used by the prod-mode scheduler before uploading an update.
+        """
+        url = f"{self.settings.server_url}/federation/current-round"
+        resp = self._request("GET", url, headers=self.auth_headers)
+        if resp.status_code == 401:
+            self._do_refresh()
+            resp = self._request("GET", url, headers=self.auth_headers)
+        resp.raise_for_status()
+        result = FederationRound(**resp.json())
+        log.info("current_round_fetched", site=self.settings.site_id, round_id=result.round_id)
+        return result
+
     def _do_refresh(self) -> None:
         """
         Exchange the current refresh token for a new access + refresh token pair.
