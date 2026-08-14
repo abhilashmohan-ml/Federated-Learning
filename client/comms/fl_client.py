@@ -233,10 +233,13 @@ class FLClient:
         update : ModelUpdate — the complete model update payload
         """
         url = f"{self.settings.server_url}/federation/update"
+        # mode="json" converts datetime fields to ISO-8601 strings so httpx can
+        # serialise the dict — plain model_dump() leaves datetime objects in place
+        payload = update.model_dump(mode="json")
         resp = self._request(
             "POST",
             url,
-            json=update.model_dump(),  # convert Pydantic model to JSON-serialisable dict
+            json=payload,
             headers=self.auth_headers,
         )
         if resp.status_code == 401:
@@ -245,7 +248,7 @@ class FLClient:
             resp = self._request(
                 "POST",
                 url,
-                json=update.model_dump(),
+                json=payload,
                 headers=self.auth_headers,
             )
         resp.raise_for_status()

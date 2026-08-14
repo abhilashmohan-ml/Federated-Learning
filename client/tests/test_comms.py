@@ -380,6 +380,20 @@ class TestUploadUpdate:
         headers = mock_req.call_args.kwargs["headers"]
         assert headers == {"Authorization": "Bearer bearer_tok"}
 
+    def test_update_body_is_json_serializable(self) -> None:
+        """Regression: model_dump() left timestamp as datetime; model_dump(mode='json') fixes it."""
+        import json
+
+        fl = _build_fl_client()
+        resp = _mock_resp(200)
+
+        with patch.object(fl, "_request", return_value=resp) as mock_req:
+            fl.upload_update(_make_update())
+
+        body = mock_req.call_args.kwargs["json"]
+        # Must not raise TypeError — previously failed because timestamp was a datetime object
+        json.dumps(body)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FLClient — get_global_model
