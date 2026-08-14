@@ -7,12 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.api.auth import get_current_site, require_admin_token
+from shared.utils.logging_config import get_logger
 from server.core.aggregation_policy import QuorumPolicy, TimeWindowPolicy
 from server.core.round_manager import RoundManager, get_round_manager
 from server.db.database import get_db
 from server.db.settings_store import SettingsStore
 
 router = APIRouter()
+log = get_logger(__name__)
 
 # Keys whose values must be valid integers before we commit them to the DB.
 _NUMERIC_KEYS: frozenset[str] = frozenset(
@@ -64,9 +66,13 @@ async def update_settings(
 
     config = await store.load(db)
     mode = config.get("aggregation_mode", "quorum")
-    if mode == "time_window":
-        rm.set_policy(TimeWindowPolicy(window_seconds=int(config["time_window_seconds"])))
-    else:
-        rm.set_policy(QuorumPolicy(min_sites=int(config["quorum_min_sites"])))
+    try:
+        if mode == "time_window":
+            rm.set_policy(TimeWindowPolicy(window_seconds=int(config["time_window_seconds"])))
+        else:
+            rm.set_policy(QuorumPolicy(min_sites=int(config["quorum_min_sites"])))
+    except (ValueError, KeyError) as exc:
+        log.warning("settings_apply_policy_failed_using_default", error=str(exc))
+        rm.set_policy(QuorumPolicy())
 
     return {"status": "ok", "config": config}
