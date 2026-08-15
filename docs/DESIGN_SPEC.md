@@ -1,45 +1,51 @@
 # Design Specification
 ## Viral Filtration Federated Learning Platform
 
-**Version:** 1.0  
-**Date:** 2026-07-04  
-**Status:** Implemented (v0.1.0)
+**Version:** 2.0  
+**Date:** 2026-08-15  
+**Status:** Implemented (v0.2.0 — data-driven FL branch)
 
 ---
 
 ## 1. System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Central Server                            │
-│                                                                  │
-│   FastAPI (port 8000)          Flet Dashboard (port 8550)        │
-│   ├── /auth                    ├── Round overview                │
-│   ├── /federation              ├── Site monitor                  │
-│   ├── /models                  ├── Global model viewer           │
-│   └── /health                  └── Settings                      │
-│                                                                  │
-│   Core                          Database (PostgreSQL / SQLite)   │
-│   ├── RoundManager              ├── site_registry                │
-│   ├── FedProxAggregator         ├── rounds                       │
-│   └── ModelRegistry             ├── model_updates                │
-│                                 └── revoked_tokens               │
-└─────────────────────────────────────────────────────────────────┘
-          │  HTTPS + JWT Bearer          │
-     ┌────┘                             └────┐
-     │                                        │
-┌────▼──────────┐                   ┌────────▼──────┐
-│  Site 1       │   …               │  Site 5       │
-│  FL Client    │                   │  FL Client    │
-│  ├── Engine   │                   │  ├── Engine   │
-│  │   ├── DataLoader               │  │   ...      │
-│  │   ├── LocalTrainer             │  Flet UI      │
-│  │   └── Scheduler                │  (port 8555)  │
-│  ├── Comms                        └───────────────┘
-│  │   ├── FLClient (httpx)
-│  │   └── Heartbeat
-│  └── Flet UI (port 8551)
-└───────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         Central Server                                │
+│                                                                       │
+│   FastAPI (port 8000)               Flet Dashboard (port 8550)        │
+│   ├── /auth                         ├── Round overview                │
+│   ├── /federation                   ├── Site monitor (run counts)     │
+│   ├── /models                       ├── Global model viewer           │
+│   ├── /settings  (admin API)        └── Settings (policy controls)   │
+│   └── /health                                                         │
+│                                                                       │
+│   Core                               Database (PostgreSQL / SQLite)   │
+│   ├── RoundManager                   ├── site_registry                │
+│   │   └── AggregationPolicy          ├── rounds                       │
+│   ├── FedProxAggregator              ├── model_updates                │
+│   ├── ModelRegistry                  ├── revoked_tokens               │
+│   └── SitePoller (heartbeat)         └── server_settings              │
+│       SettingsStore                                                    │
+└──────────────────────────────────────────────────────────────────────┘
+          │  HTTPS + JWT Bearer                      ▲ /site/status
+     ┌────┘                             └────┐       │ (heartbeat poll)
+     │                                        │       │
+┌────▼───────────────────────┐      ┌────────▼─────────────────┐
+│  Site N  (any site_id)      │  …   │  Site M  (any site_id)   │
+│  FL Client                  │      │  FL Client               │
+│  ├── Engine                 │      │  ├── Engine              │
+│  │   ├── DataSource         │      │  │   └── DataSource      │
+│  │   │   ├── DevDataSource  │      │  │       (Prod or Dev)   │
+│  │   │   └── ProdDataSource │      │  ├── Comms               │
+│  │   ├── LocalTrainer       │      │  │   ├── FLClient        │
+│  │   └── Scheduler          │      │  │   └── Heartbeat       │
+│  ├── Comms                  │      │  ├── StatusServer :900N  │
+│  │   ├── FLClient (httpx)   │      │  └── Flet UI :855N       │
+│  │   └── Heartbeat          │      └──────────────────────────┘
+│  ├── StatusServer :900N     │
+│  └── Flet UI :855N          │
+└─────────────────────────────┘
 ```
 
 Each site runs in a separate network-isolated environment. In Docker dev, this is a dedicated bridge network per site. In production, sites are on separate corporate networks.
@@ -52,29 +58,37 @@ Each site runs in a separate network-isolated environment. In Docker dev, this i
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| Entry point | `server/main.py` | App factory, CORS middleware, router registration, uvicorn launcher |
-| Configuration | `server/config.py` | Pydantic-settings: reads `.env`, exposes typed settings |
-| Auth API | `server/api/auth.py` | `/auth/token`, `/auth/refresh`, `/auth/revoke`; `get_current_site` dependency |
-| Federation API | `server/api/federation.py` | `/federation/round/start`, `/federation/update`, `/federation/round/{id}`, `/federation/sites` |
+| Entry point | `server/main.py` | App factory, CORS middleware, router registration, startup event (policy load + SitePoller start) |
+| Configuration | `server/config.py` | Pydantic-settings: reads `.env`, exposes typed settings; includes `heartbeat_seconds`, `site_status_urls`, `site_poll_secret` |
+| Auth API | `server/api/auth.py` | `/auth/token`, `/auth/refresh`, `/auth/revoke`; `get_current_site`, `require_admin_token` dependencies |
+| Federation API | `server/api/federation.py` | `/federation/round/start`, `/federation/update`, `/federation/round/{id}`, `/federation/sites`, `/federation/current-round` |
+| Settings API | `server/api/settings.py` | `GET /settings` (any site), `PUT /settings` (admin key required via `X-Admin-Key` header) |
 | Models API | `server/api/models.py` | `GET /models/global-model` — returns current global weights from RoundManager |
 | Health API | `server/api/health.py` | `GET /health/` — liveness probe |
-| RoundManager | `server/core/round_manager.py` | In-memory round state machine; triggers aggregation |
+| RoundManager | `server/core/round_manager.py` | In-memory round state machine; pluggable `AggregationPolicy`; `sync_site_run_info`, `mark_site_error` |
+| AggregationPolicy | `server/core/aggregation_policy.py` | `AggregationPolicy` Protocol; `QuorumPolicy`; `TimeWindowPolicy` |
+| SitePoller | `server/core/site_poller.py` | Asyncio heartbeat task; polls each site's `/site/status`; calls `sync_site_run_info` |
 | FedProxAggregator | `server/core/aggregator.py` | Weighted FedAvg aggregation |
 | ModelRegistry | `server/core/model_registry.py` | Model versioning and retrieval |
 | DB engine | `server/db/database.py` | Async SQLAlchemy engine; `get_db` dependency |
-| ORM models | `server/db/models.py` | SiteRegistry, RoundRecord, ModelUpdateRecord, RevokedToken |
-| Server dashboard | `server/ui/app.py` | Flet multi-page dashboard |
+| ORM models | `server/db/models.py` | SiteRegistry, RoundRecord, ModelUpdateRecord, RevokedToken, ServerSetting |
+| SettingsStore | `server/db/settings_store.py` | Async key-value store backed by `server_settings` table; defaults on first load |
+| Server dashboard | `server/ui/app.py` | Flet multi-page dashboard; poll loop extracts `run_counts`/`last_run_at` from snapshot |
+| Site card | `server/ui/components/site_card.py` | `SiteCard.set_run_info(run_count, last_run_at)` — smart date display |
+| Settings page | `server/ui/pages/settings.py` | RadioGroup Quorum/TimeWindow; heartbeat field; `PUT /settings` via httpx |
 
 ### 2.2 Client — FL Client Application (`client/`)
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| Entry point | `client/main.py` | Start FLClient, Scheduler, Heartbeat, Flet UI |
-| Configuration | `client/config.py` | Pydantic-settings: site_id, server_url, SSL, timeouts, DP noise |
-| DataLoader | `client/engine/data_loader.py` | Load and validate local filtration CSV |
-| LocalTrainer | `client/engine/local_trainer.py` | Hermia fitting, DP noise, build ModelUpdate payload |
-| Scheduler | `client/engine/scheduler.py` | Poll server for active rounds; trigger training |
-| FLClient | `client/comms/fl_client.py` | HTTPS transport: authenticate, upload_update, get_global_model, retry with backoff |
+| Entry point | `client/main.py` | Wire DataSource (Dev or Prod), start StatusServer, Scheduler, Heartbeat, Flet UI |
+| Configuration | `client/config.py` | Pydantic-settings: site_id, server_url, SSL, timeouts, DP noise, dev_mode, dev physics vars, client_status_port |
+| DataSource | `client/engine/data_source.py` | `DataSource(Protocol)`, `DevDataSource`, `ProdDataSource`, `NoNewDataError` |
+| LocalTrainer | `client/engine/local_trainer.py` | `__init__(data_source: DataSource)`; Hermia fitting, DP noise, build ModelUpdate payload |
+| Scheduler | `client/engine/scheduler.py` | `_watch_dev()` / `_watch_prod()` / `start_scheduler(data_source)` — drives training loop |
+| TrainingState | `client/engine/state.py` | Shared state: `run_count`, `last_run_at`, `phase` |
+| StatusServer | `client/comms/status_server.py` | FastAPI `GET /site/status` (bearer auth); `start_status_server(port)` |
+| FLClient | `client/comms/fl_client.py` | HTTPS transport: authenticate, upload_update, get_global_model, get_current_round, retry with backoff |
 | Heartbeat | `client/comms/heartbeat.py` | Daemon thread; periodic health ping to server |
 | Client UI | `client/ui/app.py` | Flet status + local results pages |
 
@@ -272,3 +286,80 @@ Isolation properties:
 | Hermia fitter | scipy curve_fit fails | Exception caught silently; model excluded from AIC comparison |
 | Server API | JWT invalid/expired | HTTP 401 with WWW-Authenticate: Bearer |
 | Server API | site_id mismatch | HTTP 403 Forbidden |
+| Settings API | PUT with non-numeric value for numeric key | HTTP 422 Unprocessable Entity (pre-commit validation) |
+| Settings API | PUT without X-Admin-Key | HTTP 403 Forbidden |
+| StatusServer | GET /site/status without bearer token (when SITE_SECRET set) | HTTP 401 Unauthorized |
+| SitePoller | Connection error to a site | `mark_site_error(site_id)` — does not raise; logged as warning |
+| ProdDataSource | No new CSV files in directory | Raise `NoNewDataError` — Scheduler sleeps and retries after `data_poll_seconds` |
+
+---
+
+## 9. Data-Driven FL Architecture
+
+### 9.1 DataSource Abstraction
+
+Sites support two data modes, selected by `DEV_MODE` env var:
+
+```
+DEV_MODE=true   →  DevDataSource(physics_cfg, jitter)
+DEV_MODE=false  →  ProdDataSource(data_dir)
+```
+
+`DataSource` is a `Protocol` with one method:
+```python
+def get_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ...  # returns (time, flux, tmp) arrays
+```
+
+**DevDataSource** generates synthetic Combined 1-A flux data on every call using `PHYSICS_DEFAULTS` (or per-site overrides via `DEV_J0`, `DEV_K1`, `DEV_K2`, `DEV_NOISE`, `DEV_TMP_BASE`). Gaussian jitter is applied to create intra-site variance. Inter-site variance comes from different physics defaults per site in the launcher script.
+
+**ProdDataSource** polls a directory for new `filtration_*.csv` files. Processed filenames are tracked in a `.processed.json` sidecar (written atomically via `.tmp` rename). Only unprocessed files trigger training. Raises `NoNewDataError` when no new files exist.
+
+### 9.2 Pluggable Aggregation Policy
+
+`AggregationPolicy` is a `Protocol`:
+```python
+def should_aggregate(
+    self, updates_since_last: int, sites_contributed: set[str], elapsed_seconds: float
+) -> bool: ...
+```
+
+Two built-in implementations:
+
+| Policy | Trigger condition |
+|--------|------------------|
+| `QuorumPolicy(min_sites=3)` | `len(sites_contributed) >= min_sites` |
+| `TimeWindowPolicy(window_seconds=1800)` | `updates_since_last >= 1 and elapsed_seconds >= window_seconds` |
+
+Policy is swapped live via `RoundManager.set_policy(policy)` — no server restart needed. The `PUT /settings` API persists the choice to `server_settings` and calls `set_policy` immediately.
+
+### 9.3 Site Heartbeat Poller
+
+`SitePoller` runs as an asyncio background task started at server startup. It:
+1. Reads `SITE_STATUS_URLS` env var (`site_a:http://a:9001,site_b:http://b:9001`)
+2. GETs `/site/status` from each configured site every `heartbeat_seconds`
+3. Passes `Authorization: Bearer {SITE_POLL_SECRET}` header (when configured)
+4. On success: calls `RoundManager.sync_site_run_info(site_id, run_count, last_run_at)`
+5. On failure: calls `RoundManager.mark_site_error(site_id)`; never raises
+
+The poller is **read-only** — it never triggers aggregation directly.
+
+### 9.4 Client Status Server
+
+Each site runs a lightweight FastAPI app (`client/comms/status_server.py`) on `CLIENT_STATUS_PORT` (default 9001):
+
+```
+GET /site/status
+Response: {"site_id": "...", "run_count": 5, "last_run_at": "2026-08-15T10:30:00Z", "phase": "idle"}
+```
+
+When `SITE_SECRET` is non-empty, the endpoint requires `Authorization: Bearer {SITE_SECRET}`. The server's `SITE_POLL_SECRET` must match the site's `SITE_SECRET`.
+
+### 9.5 Dynamic Site Registration
+
+No hardcoded `site_1..site_5` exists in any production Python code. Sites are:
+- **Registered** via `REGISTERED_SITES=site_a:secret_a,site_b:secret_b` in `init_db.py`
+- **Polled** via `SITE_STATUS_URLS=site_a:http://a:9001` in `server/config.py`
+- **Identified** by their `SITE_ID` env var in each client container
+
+Production code uses only `str` site identifiers with no assumed format or enumeration.

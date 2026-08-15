@@ -109,25 +109,19 @@ SERVER_SECRET_KEY=a3f8c2e1d4b7a9f0e2c5d8b1a4f7c0e3d6b9a2f5c8e1d4b7a0f3c6e9d2b5a8
 
 ---
 
-**Change 2 — `SITE_1_SECRET` through `SITE_5_SECRET`**
+**Change 2 — `REGISTERED_SITES`**
 
-These are the passwords each site uses to prove its identity to the server. The server bcrypt-hashes them and stores the hash — the plain-text value here must be sent exactly by the matching client.
+This is the site registration list used by `init_db.py`. Format: comma-separated `site_id:secret` pairs.
 
 ```ini
 # Before:
-SITE_1_SECRET=CHANGE_ME_site1_secret
-SITE_2_SECRET=CHANGE_ME_site2_secret
-SITE_3_SECRET=CHANGE_ME_site3_secret
-SITE_4_SECRET=CHANGE_ME_site4_secret
-SITE_5_SECRET=CHANGE_ME_site5_secret
+REGISTERED_SITES=CHANGE_ME
 
-# After (paste your 2nd–6th generated secrets, one per line, each unique):
-SITE_1_SECRET=<2nd secret>
-SITE_2_SECRET=<3rd secret>
-SITE_3_SECRET=<4th secret>
-SITE_4_SECRET=<5th secret>
-SITE_5_SECRET=<6th secret>
+# After (paste your 2nd–6th generated secrets):
+REGISTERED_SITES=site_1:<2nd secret>,site_2:<3rd secret>,site_3:<4th secret>,site_4:<5th secret>,site_5:<6th secret>
 ```
+
+The Docker Compose file sets each client container's `SITE_SECRET` and `SITE_ID` individually — these must match the secrets in `REGISTERED_SITES`.
 
 ---
 
@@ -396,24 +390,21 @@ SERVER_DB_URL=sqlite+aiosqlite:///./viral_fl.db
 
 ---
 
-**Change 3 — `SITE_1_SECRET` through `SITE_5_SECRET`**
+**Change 3 — `REGISTERED_SITES`**
 
-These are the passwords each site client uses to authenticate. The server hashes them with bcrypt during `init_db.py` and stores only the hash — never the plain text.
+This is the site registration list used by `init_db.py`. Format: `site_id:secret,site_id:secret,...`
 
 ```ini
 # Before:
-SITE_1_SECRET=CHANGE_ME_site1_secret
-SITE_2_SECRET=CHANGE_ME_site2_secret
-SITE_3_SECRET=CHANGE_ME_site3_secret
-SITE_4_SECRET=CHANGE_ME_site4_secret
-SITE_5_SECRET=CHANGE_ME_site5_secret
+REGISTERED_SITES=CHANGE_ME
 
 # After (paste your 2nd–6th generated secrets, each unique):
-SITE_1_SECRET=<2nd secret>
-SITE_2_SECRET=<3rd secret>
-SITE_3_SECRET=<4th secret>
-SITE_4_SECRET=<5th secret>
-SITE_5_SECRET=<6th secret>
+REGISTERED_SITES=site_1:<2nd secret>,site_2:<3rd secret>,site_3:<4th secret>,site_4:<5th secret>,site_5:<6th secret>
+```
+
+Each client process also needs `SITE_SECRET` set to its own secret (matches the entry in `REGISTERED_SITES`):
+```bash
+SITE_ID=site_1 SITE_SECRET=<2nd secret> python client/main.py
 ```
 
 ---
@@ -488,9 +479,10 @@ python scripts/init_db.py
 ```
 
 **What this does:**
-1. Creates all database tables (sites, rounds, model_versions, audit_logs)
-2. Reads `SITE_N_SECRET` values from `.env`
-3. bcrypt-hashes each secret and inserts a row in the `site_registry` table for sites 1–5
+1. Creates all database tables (site_registry, rounds, model_updates, revoked_tokens, server_settings)
+2. Reads `REGISTERED_SITES` from `.env` (`site_id:secret,site_id:secret,...` format)
+3. bcrypt-hashes each secret and inserts a row in the `site_registry` table for each site
+4. Applies pending Alembic migrations
 
 You only need to run this **once**. If you change secrets in `.env`, delete `viral_fl.db` and re-run.
 
@@ -665,7 +657,7 @@ This script manages the round lifecycle internally — no separate terminals nee
 
 > **Windows only.** These scripts replace the 7-terminal manual startup above with two PowerShell commands — one to start everything, one to clean up.
 
-### `start_all_server_clients_dev.ps1` — launch everything at once
+### `start_all_server_clients_dev.ps1` — launch everything at once (dev mode)
 
 Run from the repo root in a PowerShell window (not CMD):
 
@@ -675,32 +667,34 @@ Run from the repo root in a PowerShell window (not CMD):
 
 **What it does, step by step:**
 
-1. **Frees ports** — scans 8000, 8550–8555 for listening processes and kills them before starting. This prevents "address already in use" errors if a previous session wasn't cleaned up.
-2. **Opens 7 colour-coded PowerShell windows**, one per component, each titled and colour-coded so you can identify them at a glance:
+1. **Frees ports** — scans 8000, 8550–8555, and 9001–9005 for listening processes and kills them. This prevents "address already in use" errors if a previous session wasn't cleaned up.
+2. **Opens 7 colour-coded PowerShell windows**, one per component:
 
 | Window title | Background colour | Process started |
 |---|---|---|
-| `Server` | Dark Blue | `python server/main.py` — FastAPI REST API on :8000 |
-| `Server GUI` | Dark Cyan | `python server/ui/app.py` — Flet monitoring dashboard on :8550 |
-| `Site 1` | Dark Green | `client/main.py` — site_1 FL client on :8551 |
-| `Site 2` | Dark Green | `client/main.py` — site_2 FL client on :8552 |
-| `Site 3` | Dark Green | `client/main.py` — site_3 FL client on :8553 |
-| `Site 4` | Dark Green | `client/main.py` — site_4 FL client on :8554 |
-| `Site 5` | Dark Green | `client/main.py` — site_5 FL client on :8555 |
+| `Server` | Dark Blue | `python server/main.py` — FastAPI :8000 with `DEV_MODE=true` |
+| `Server GUI` | Dark Cyan | `python server/ui/app.py` — Flet dashboard :8550 |
+| `Site 1` | Dark Green | `client/main.py` — site_1, Flet :8551, status :9001, DEV_J0=150 |
+| `Site 2` | Dark Green | `client/main.py` — site_2, Flet :8552, status :9002, DEV_J0=130 |
+| `Site 3` | Dark Green | `client/main.py` — site_3, Flet :8553, status :9003, DEV_J0=170 |
+| `Site 4` | Dark Green | `client/main.py` — site_4, Flet :8554, status :9004, DEV_J0=145 |
+| `Site 5` | Dark Green | `client/main.py` — site_5, Flet :8555, status :9005, DEV_J0=160 |
+
+Each site receives different physics parameters (`DEV_J0`, `DEV_K1`, `DEV_K2`) so each site generates different synthetic data — simulating real inter-site variability in filtration conditions.
 
 3. **Activates `.venv` automatically** inside every window — you do not need to activate it manually.
 
 **Prerequisites before running:**
 - venv created (`python -m venv .venv`)
 - Dependencies installed (`pip install -r requirements/server.txt` + `client.txt`)
-- `.env` configured and `init_db.py` + `generate_synthetic_data.py` already run
+- `.env` configured and `init_db.py` already run (no `generate_synthetic_data.py` needed in dev mode)
 - Run from the repo root, not a subdirectory
 
 **Expected output in the PowerShell window that ran the script:**
 ```
 Checking project ports...
   All ports free.
-All 7 windows launched.
+All 7 windows launched (DEV_MODE — synthetic data, no CSV files needed).
 ```
 
 Then switch to the `Server` window and wait for:
@@ -709,7 +703,15 @@ INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
-Then trigger a federation round (see Step 10 above) — all 5 site clients respond automatically.
+In dev mode, the site clients generate synthetic data automatically — no need to trigger a round manually. The scheduler detects `DevDataSource` and runs continuously.
+
+### `start_all_server_clients.ps1` — production launcher
+
+```powershell
+.\start_all_server_clients.ps1
+```
+
+Same structure as the dev launcher but without `DEV_MODE=true`. Each client reads real filtration CSV files from its `LOCAL_DATA_PATH`. Use for staging and production environments.
 
 ---
 
@@ -743,6 +745,49 @@ Done. Ports free, terminals closed, cache clean.
 ```
 
 Run this before finishing for the day or before switching branches, so the next startup is clean.
+
+---
+
+## Dev Mode vs Production Mode
+
+The client engine supports two data source modes controlled by `DEV_MODE`:
+
+### Dev Mode (`DEV_MODE=true`)
+
+No CSV files required. Each site generates synthetic Combined 1-A flux data on every FL run:
+
+```
+J(t) = J0 / (1 + k1·t)^2 * exp(-k2·t)
+```
+
+Physics parameters are configurable per-site via environment variables:
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `DEV_J0` | 150.0 | Initial flux J0 (LMH) |
+| `DEV_K1` | 0.015 | Fouling parameter k1 |
+| `DEV_K2` | 0.002 | Fouling parameter k2 |
+| `DEV_NOISE` | 2.0 | Additive Gaussian noise σ (LMH) |
+| `DEV_TMP_BASE` | 1.0 | Synthetic TMP base (bar) |
+| `DEV_JITTER_FRACTION` | 0.05 | Relative jitter applied to flux |
+
+Set different `DEV_J0/K1/K2` per site to simulate inter-site variability. The dev launcher script (`start_all_server_clients_dev.ps1`) does this automatically.
+
+The dev mode scheduler (`_watch_dev`) loops continuously — it does not wait for new CSV files. Each iteration calls `DevDataSource.get_data()`, trains locally, and uploads to the server if a round is active.
+
+### Production Mode (`DEV_MODE=false` or unset)
+
+The client polls `LOCAL_DATA_PATH`'s directory for new `filtration_*.csv` files every `DATA_POLL_SECONDS` (default 60 s). A `.processed.json` sidecar file tracks which CSVs have already been trained on. Only new, unprocessed files trigger training.
+
+```
+data/site_1/
+├── filtration_2026-08-15T09-00-00.csv   ← processed (in .processed.json)
+├── filtration_2026-08-15T09-30-00.csv   ← processed
+├── filtration_2026-08-15T10-00-00.csv   ← NEW → triggers training
+└── .processed.json
+```
+
+Write new CSVs to the site's data directory (from your instruments or simulation) and the client picks them up automatically.
 
 ---
 
@@ -833,6 +878,12 @@ Below is the complete reference. Dev defaults are already set in `.env.example`.
 | `FL_ROUNDS` | `5–10` for dev testing | `50` | Faster dev iteration |
 | `MIN_SITES_PER_ROUND` | `2` for dev (easier to trigger) | `3` | Need fewer sites to run a round |
 | `LOG_LEVEL` | `DEBUG` | `INFO` or `WARNING` | Dev needs verbose output |
+| `DEV_MODE` | `true` | `false` or unset | Synthetic data vs real CSV |
+| `DEV_J0` | per-site values in launcher | — | Only used when `DEV_MODE=true` |
+| `CLIENT_STATUS_PORT` | `900N` (per site, N=1-5) | configured per deployment | Status server port for SitePoller |
+| `SITE_STATUS_URLS` | `site_1:http://localhost:9001,...` | `site_a:https://site-a.internal:9001,...` | Server-side: which sites to heartbeat-poll |
+| `SITE_POLL_SECRET` | match each site's `SITE_SECRET` | strong unique secret | Auth for server→site status poll |
+| `HEARTBEAT_SECONDS` | `30` | `30–120` | Site poll interval |
 
 **Tip:** For federation testing in dev, set `FL_ROUNDS=5` and `MIN_SITES_PER_ROUND=2` in your `.env`. This makes rounds trigger faster and finish quicker.
 
@@ -842,13 +893,16 @@ Below is the complete reference. Dev defaults are already set in `.env.example`.
 
 | Symptom | Most likely cause | Fix |
 |---------|-------------------|-----|
-| `Bad credentials` on `/auth/token` | `SITE_N_SECRET` in `.env` doesn't match what the server hashed during `init_db.py` | Re-check `.env` — delete `viral_fl.db` and re-run `init_db.py` if you changed secrets |
+| `Bad credentials` on `/auth/token` | `REGISTERED_SITES` in `.env` doesn't match what the server hashed during `init_db.py` | Re-check `.env` — delete `viral_fl.db` and re-run `init_db.py` if you changed secrets |
 | `No global model available yet` | No round has completed yet | Start a round via `POST /federation/round/start` |
 | `401 Unauthorized` mid-round | JWT expired (15 min lifetime) | The client auto-refreshes — if manual curl, re-run the auth step |
 | `create_all` error on DB init | Tables already exist from a previous run | Delete `viral_fl.db` and re-run `init_db.py`, or run `alembic upgrade head` |
-| Port `8000` already in use | Another process grabbed it | Change `SERVER_PORT` in `.env`, or `lsof -i :8000` (Mac/Linux) to find the culprit |
+| Port `8000` already in use | Another process grabbed it | Change `SERVER_PORT` in `.env`, or use the dev cleanup script |
+| Port `900N` already in use | Previous status server still running | Run `.\post_dev_cleanup.ps1` or kill the process manually |
 | Docker `health check failing` on db | Postgres still starting | Wait 30s — the server waits for the DB health check automatically |
-| Site client connects but never trains | No round started | Clients wait passively — you must trigger a round manually or run `run_simulation.py` |
+| Dev mode: site client never trains | `DEV_MODE` not set | Set `DEV_MODE=true` in env or use `start_all_server_clients_dev.ps1` |
+| Prod mode: site client never trains | No new CSV files in data dir | Write a `filtration_YYYY-MM-DDTHH-MM-SS.csv` to the site's data directory |
+| `403 Forbidden` on `PUT /settings` | Missing or wrong `X-Admin-Key` header | Header must equal `SERVER_SECRET_KEY` from `.env` |
 | `mypy --strict` errors | Missing type hints | Add type hints to all new public functions before committing |
 | Tests below 80% coverage | New code without tests | Write unit tests for every branch in `shared/`, `server/core/`, `client/engine/` |
 
@@ -859,13 +913,15 @@ Below is the complete reference. Dev defaults are already set in `.env.example`.
 ```
 viral_fl_project/
 ├── server/           FastAPI server + Flet dashboard
-│   ├── api/          auth.py  federation.py  models.py  health.py
+│   ├── api/          auth.py  federation.py  models.py  health.py  settings.py
 │   ├── core/         aggregator.py  round_manager.py  model_registry.py
-│   ├── db/           database.py  models.py  migrations/
+│   │                 aggregation_policy.py  site_poller.py
+│   ├── db/           database.py  models.py  migrations/  settings_store.py
 │   └── ui/           app.py + pages/ + components/
 ├── client/           Per-site FL client
 │   ├── engine/       local_trainer.py  data_loader.py  scheduler.py
-│   ├── comms/        fl_client.py  heartbeat.py
+│   │                 data_source.py  state.py
+│   ├── comms/        fl_client.py  heartbeat.py  status_server.py
 │   └── ui/           app.py + pages/
 ├── shared/           Code shared by server and all clients
 │   ├── models/       hermia.py  manabe.py  polarization.py  combined_1a.py  pinn.py
@@ -875,9 +931,11 @@ viral_fl_project/
 ├── scripts/          init_db.py  generate_synthetic_data.py
 │                     run_simulation.py  visualise_results.py
 ├── notebooks/        01_hermia  02_manabe  03_pinn  04_federated_sim
-├── data/             site_1/ … site_5/  (generated — not committed)
+├── data/             site_N/  (CSV files for prod mode — not committed)
 ├── requirements/     base.txt  server.txt  client.txt
 ├── docs/             DEV_SETUP.md (this file)  PRODUCTION.md  specs/
+├── start_all_server_clients_dev.ps1   (dev launcher)
+├── start_all_server_clients.ps1       (prod launcher)
 ├── docker-compose.yml
 └── .env.example
 ```

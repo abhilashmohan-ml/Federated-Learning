@@ -15,34 +15,43 @@ Five sites collaboratively train a shared **Physics-Informed Neural Network (PIN
 | Filter sizing | Minimum filter area A_min and flux ratio |
 | Fouling regime classification | Hermia AIC/BIC model selection across 5 blocking models |
 | Privacy guarantee | Gaussian DP noise on all gradient updates; raw CSVs never leave the site |
-| Live dashboards | Flet web UI for the central server and each of the 5 client sites |
+| Live dashboards | Flet web UI for the central server and each client site; shows run count and last-run time per site |
+| Dev mode | `DEV_MODE=true` — each site generates synthetic Combined 1-A flux data with configurable physics params; no CSV files needed |
+| Prod mode | Sites watch a directory for new `filtration_*.csv` files; training triggers automatically on new data |
+| Pluggable aggregation policy | QuorumPolicy (N sites) or TimeWindowPolicy (elapsed time); changeable live via `PUT /settings` API |
+| Site heartbeat polling | Server periodically polls each site's `/site/status` to track run counts and last-run timestamps |
+| Dynamic site registration | Any site_id string; no hardcoded `site_1..site_5` in production code |
 
 ---
 
 ## System architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Central Server                            │
-│                                                                  │
-│   FastAPI  :8000               Flet Dashboard  :8550             │
-│   ├── /auth                    ├── Round overview                │
-│   ├── /federation              ├── Per-site monitor              │
-│   ├── /models                  ├── Global model viewer           │
-│   └── /health                  └── Settings                      │
-│                                                                  │
-│   Core                         Database (PostgreSQL / SQLite)    │
-│   ├── RoundManager             ├── site_registry                 │
-│   ├── FedProxAggregator        ├── rounds                        │
-│   └── ModelRegistry            └── model_updates                 │
-└──────────────────────────────────────────────────────────────────┘
-          │  HTTPS + JWT Bearer
-     ┌────┴────┬──────┬──────┬──────────────┐
-     │         │      │      │              │
-  site_1    site_2  site_3  site_4       site_5
-  :8551     :8552   :8553   :8554        :8555
+┌──────────────────────────────────────────────────────────────────┐
+│                        Central Server                             │
+│                                                                   │
+│   FastAPI  :8000               Flet Dashboard  :8550              │
+│   ├── /auth                    ├── Round overview                 │
+│   ├── /federation              ├── Per-site monitor               │
+│   ├── /models                  │   (run counts + last-run time)   │
+│   ├── /settings (admin API)    ├── Global model viewer            │
+│   └── /health                  └── Settings (policy controls)     │
+│                                                                   │
+│   Core                         Database (PostgreSQL / SQLite)     │
+│   ├── RoundManager             ├── site_registry                  │
+│   │   └── AggregationPolicy    ├── rounds                         │
+│   ├── SitePoller (heartbeat)   ├── model_updates                  │
+│   ├── FedProxAggregator        ├── revoked_tokens                 │
+│   └── ModelRegistry            └── server_settings                │
+└───────────────────────────────────────────────────────────────────┘
+          │  HTTPS + JWT Bearer                ▲ GET /site/status
+     ┌────┴───┬────┬────┬──────────┐           │ (heartbeat poll)
+     │        │    │    │          │           │
+  site_N  site_M  ...  site_P   site_Q       :900N
+  :855N   :855M   ...  :855P    :855Q  (status server per site)
 
-Each site:  DataLoader → LocalTrainer → DP noise → POST /federation/update
+Dev mode:  DevDataSource → LocalTrainer → DP noise → POST /federation/update
+Prod mode: ProdDataSource (polls dir) → LocalTrainer → DP noise → POST /federation/update
 ```
 
 Sites run in isolated networks. A site can reach the server but **cannot** reach any other site or the database.
@@ -77,16 +86,17 @@ Run the generator **6 times** and keep all outputs:
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Open `.env` and fill in the 6 values:
+Open `.env` and fill in the required values:
 
 ```ini
-SERVER_SECRET_KEY=<1st secret>   # signs all JWT tokens — server won't start without this
-SITE_1_SECRET=<2nd secret>
-SITE_2_SECRET=<3rd secret>
-SITE_3_SECRET=<4th secret>
-SITE_4_SECRET=<5th secret>
-SITE_5_SECRET=<6th secret>
+SERVER_SECRET_KEY=<1st secret>   # signs JWT tokens and acts as X-Admin-Key for PUT /settings
+
+# Site secrets — one per site; format: REGISTERED_SITES=site_id:secret,site_id:secret
+# The docker-compose.yml sets SITE_SECRET per client container
+REGISTERED_SITES=site_1:<2nd secret>,site_2:<3rd secret>,site_3:<4th secret>,site_4:<5th secret>,site_5:<6th secret>
 ```
+
+For Docker dev with the default `docker-compose.yml`, you can set individual `SITE_N_SECRET` vars which the compose file maps to each container. See `.env.example` for the exact variable names.
 
 Everything else in `.env.example` is already correct for Docker dev.
 
@@ -248,29 +258,37 @@ python scripts/visualise_results.py
 
 Two scripts are provided for Windows developers to avoid managing 7 separate terminals manually.
 
-#### `start_all_server_clients_dev.ps1` — launch everything
+#### `start_all_server_clients_dev.ps1` — launch everything (dev mode)
 
 ```powershell
 .\start_all_server_clients_dev.ps1
 ```
 
 What it does:
-1. Frees ports 8000 and 8550–8555 (kills any process holding them)
+1. Frees ports 8000, 8550–8555, and 9001–9005 (kills any process holding them)
 2. Opens **7 colour-coded PowerShell windows** — each runs a component and stays open for log watching:
 
 | Window title | Colour | Process |
 |---|---|---|
-| Server | Dark Blue | `python server/main.py` (FastAPI :8000) |
+| Server | Dark Blue | `python server/main.py` (FastAPI :8000, DEV_MODE=true) |
 | Server GUI | Dark Cyan | `python server/ui/app.py` (Flet dashboard :8550) |
-| Site 1 | Dark Green | `client/main.py` with `SITE_ID=site_1` (:8551) |
-| Site 2 | Dark Green | `client/main.py` with `SITE_ID=site_2` (:8552) |
-| Site 3 | Dark Green | `client/main.py` with `SITE_ID=site_3` (:8553) |
-| Site 4 | Dark Green | `client/main.py` with `SITE_ID=site_4` (:8554) |
-| Site 5 | Dark Green | `client/main.py` with `SITE_ID=site_5` (:8555) |
+| Site 1 | Dark Green | `client/main.py` with `SITE_ID=site_1`, Flet :8551, status :9001 |
+| Site 2 | Dark Green | `client/main.py` with `SITE_ID=site_2`, Flet :8552, status :9002 |
+| Site 3 | Dark Green | `client/main.py` with `SITE_ID=site_3`, Flet :8553, status :9003 |
+| Site 4 | Dark Green | `client/main.py` with `SITE_ID=site_4`, Flet :8554, status :9004 |
+| Site 5 | Dark Green | `client/main.py` with `SITE_ID=site_5`, Flet :8555, status :9005 |
 
-The script activates the `.venv` automatically in each window — no manual `activate` needed.
+Each site gets different dev physics params (`DEV_J0`, `DEV_K1`, `DEV_K2`) to simulate inter-site variance. The script activates `.venv` automatically in each window.
 
 **Prerequisites:** venv created and dependencies installed (see Setup above). Run from the repo root in PowerShell (not CMD).
+
+#### `start_all_server_clients.ps1` — launch everything (production mode)
+
+```powershell
+.\start_all_server_clients.ps1
+```
+
+Same as the dev launcher but without `DEV_MODE=true`. Sites read real filtration CSV files from `LOCAL_DATA_PATH` (set per-site in your `.env` or shell environment). Use this for staging and production deployments.
 
 #### `post_dev_cleanup.ps1` — stop everything and clean up
 
@@ -293,13 +311,14 @@ Run this after a dev session to leave a clean slate before the next `start_all_s
 ```
 viral_fl_project/
 ├── server/               FastAPI aggregation server + Flet dashboard
-│   ├── api/              auth.py  federation.py  models.py  health.py
+│   ├── api/              auth.py  federation.py  models.py  health.py  settings.py
 │   ├── core/             aggregator.py  round_manager.py  model_registry.py
-│   ├── db/               database.py  models.py  migrations/
+│   │                     aggregation_policy.py  site_poller.py
+│   ├── db/               database.py  models.py  migrations/  settings_store.py
 │   └── ui/               app.py  pages/  components/
 ├── client/               Per-site FL client
-│   ├── engine/           local_trainer.py  data_loader.py  scheduler.py
-│   ├── comms/            fl_client.py  heartbeat.py
+│   ├── engine/           local_trainer.py  data_loader.py  scheduler.py  data_source.py  state.py
+│   ├── comms/            fl_client.py  heartbeat.py  status_server.py
 │   └── ui/               app.py  pages/
 ├── shared/               Code shared by server and all clients
 │   ├── models/           hermia.py  manabe.py  polarization.py
@@ -310,10 +329,12 @@ viral_fl_project/
 ├── scripts/              init_db.py  generate_synthetic_data.py
 │                         run_simulation.py  visualise_results.py
 ├── notebooks/            01_hermia  02_manabe  03_pinn  04_federated_sim
-├── data/                 site_1/ … site_5/  (generated — not committed)
+├── data/                 site_N/  (generated — not committed)
 ├── requirements/         base.txt  server.txt  client.txt
 ├── docs/                 DEV_SETUP.md  PRODUCTION.md  FUNCTIONAL_SPEC.md
 │                         TECHNICAL_SPEC.md  DESIGN_SPEC.md  DB_SCHEMA.md
+├── start_all_server_clients_dev.ps1   (dev launcher — DEV_MODE=true)
+├── start_all_server_clients.ps1       (prod launcher — reads real CSVs)
 ├── docker-compose.yml
 └── .env.example
 ```
@@ -372,7 +393,10 @@ All federation routes require `Authorization: Bearer <access_token>`.
 | `POST` | `/federation/update` | Submit a local model update |
 | `GET` | `/federation/round/{id}` | Round status and metrics |
 | `GET` | `/federation/sites` | All site statuses |
+| `GET` | `/federation/current-round` | Get or create the current collecting round (prod mode) |
 | `GET` | `/models/global-model` | Download current global weights |
+| `GET` | `/settings` | Read aggregation policy settings |
+| `PUT` | `/settings` | Update policy (requires `X-Admin-Key` header) |
 | `GET` | `/health/` | Liveness probe (no auth required) |
 
 Full schema with request/response bodies: http://localhost:8000/docs

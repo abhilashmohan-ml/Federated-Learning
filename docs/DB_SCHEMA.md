@@ -1,8 +1,8 @@
 # Database Schema
 ## Viral Filtration Federated Learning Platform
 
-**Version:** 1.0  
-**Date:** 2026-07-04  
+**Version:** 2.0  
+**Date:** 2026-08-15  
 **ORM:** SQLAlchemy 2.x (asyncio) — `server/db/models.py`  
 **Migrations:** Alembic — `server/db/migrations/`  
 **Development DB:** SQLite (aiosqlite)  
@@ -20,6 +20,8 @@ site_registry ──(1:N)── model_updates
       └──(1:N)── revoked_tokens
 
 rounds ──(1:N)── model_updates  (by round_id, logical FK — not enforced in schema)
+
+server_settings  (standalone key-value store — no FKs)
 ```
 
 No foreign key constraints are currently defined at the DB level. Referential integrity is enforced at the application layer.
@@ -34,7 +36,7 @@ Populated by `scripts/init_db.py` at first startup.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | INTEGER | PRIMARY KEY, AUTO | Surrogate key |
-| `site_id` | VARCHAR(50) | UNIQUE, NOT NULL | Site identifier: `site_1` … `site_5` |
+| `site_id` | VARCHAR(50) | UNIQUE, NOT NULL | Unique site identifier (any string, e.g. `site_alpha`, `site_boston`). No hardcoded range. |
 | `secret_hash` | VARCHAR(256) | NOT NULL | bcrypt hash of the site secret (passlib `CryptContext(schemes=["bcrypt"])`) |
 | `registered_at` | TIMESTAMP WITH TIME ZONE | NOT NULL, DEFAULT now() | Registration timestamp |
 | `last_seen` | TIMESTAMP WITH TIME ZONE | NULL | Last successful authentication timestamp |
@@ -117,7 +119,7 @@ One row per model update submitted by a site. Records what was received and when
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | INTEGER | PRIMARY KEY, AUTO | Surrogate key |
-| `site_id` | VARCHAR(50) | NOT NULL | Submitting site (`site_1` … `site_5`) |
+| `site_id` | VARCHAR(50) | NOT NULL | Submitting site (any registered site_id) |
 | `round_id` | INTEGER | NOT NULL | Target round (logical FK → `rounds.round_id`) |
 | `n_samples` | INTEGER | NOT NULL | Number of local training samples; used for FedProx weighting |
 | `hermia_model` | VARCHAR(30) | NOT NULL, DEFAULT `'combined_1a'` | Best Hermia model selected by AIC: `standard` \| `complete` \| `intermediate` \| `cake` \| `combined_1a` |
@@ -205,13 +207,54 @@ class RevokedToken(Base):
 
 ---
 
+## Table: `server_settings`
+
+Runtime key-value configuration for aggregation policy and heartbeat poller. Populated with defaults by `SettingsStore.load()` on first access. Updated by the `PUT /settings` API.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `key` | VARCHAR(100) | PRIMARY KEY | Setting name (see defaults below) |
+| `value` | VARCHAR(500) | NOT NULL | Setting value (always stored as string) |
+
+**Default rows (inserted by `SettingsStore` on first load):**
+
+| key | default value | Notes |
+|-----|--------------|-------|
+| `aggregation_mode` | `quorum` | `"quorum"` or `"time_window"` |
+| `quorum_min_sites` | `3` | Minimum sites for QuorumPolicy |
+| `time_window_seconds` | `1800` | Window duration for TimeWindowPolicy (30 min) |
+| `heartbeat_seconds` | `30` | SitePoller poll interval |
+
+**SQLAlchemy definition:**
+```python
+class ServerSetting(Base):
+    __tablename__ = "server_settings"
+    key:   Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(String(500), nullable=False)
+```
+
+**Alembic migration:** `server/db/migrations/versions/0969c4fdf5dc_add_server_settings_table.py`
+
+**Notes:**
+- All values are strings; the caller converts types when reading (e.g. `int(value)`)
+- Numeric keys validated before write via `PUT /settings` (raises HTTP 422 on bad values)
+- No FK relationships — standalone configuration store
+
+---
+
 ## Initialisation
 
 The database is initialised by `scripts/init_db.py`:
 
 1. `Base.metadata.create_all(engine)` — creates all tables if they do not exist
-2. For each site (`site_1` … `site_5`): read `SITE_N_SECRET` from environment, hash with bcrypt, `INSERT OR IGNORE INTO site_registry`
-3. Logs generated secrets to stdout (if auto-generated) for the operator to copy to client `.env` files
+2. Reads `REGISTERED_SITES` env var (format: `site_a:secret_a,site_b:secret_b`)
+3. For each `site_id:secret` pair: hash secret with bcrypt, `INSERT OR IGNORE INTO site_registry`
+4. Applies pending Alembic migrations (`alembic upgrade head`)
+
+**Example:**
+```bash
+REGISTERED_SITES=site_1:s3cr3t1,site_2:s3cr3t2,site_3:s3cr3t3 python scripts/init_db.py
+```
 
 Subsequent runs are idempotent — existing rows are not overwritten.
 

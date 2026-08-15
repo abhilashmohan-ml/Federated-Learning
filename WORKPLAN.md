@@ -114,3 +114,63 @@
   - [ ] Load testing  (concurrent site updates)
   - [ ] CI/CD pipeline  (GitHub Actions)
   - [ ] Full documentation
+
+## Phase 10: Data-Driven FL (feature/data-driven-fl branch — 2026-08-14/15)
+
+All 13 tasks implemented, reviewed, and merged.
+
+  - [x] Task 1: DataSource abstraction (`client/engine/data_source.py`)
+        DevDataSource(physics_cfg, jitter) — generates Combined 1-A synthetic flux each call
+        ProdDataSource(data_dir) — polls directory for new filtration_*.csv files
+        PHYSICS_DEFAULTS: dict[str, float] — no site-name keys
+        NoNewDataError exception for empty directory
+  - [x] Task 2: ClientSettings extension (`client/config.py`)
+        Added: dev_mode, dev_jitter_fraction, dev_j0/k1/k2/noise/tmp_base,
+        data_poll_seconds, client_status_port, site_secret (single field)
+  - [x] Task 3: TrainingState extension (`client/engine/state.py`)
+        Added: run_count: int, last_run_at: Optional[str] (ISO-8601 UTC)
+  - [x] Task 4: LocalTrainer refactor + Scheduler rewrite
+        LocalTrainer.__init__(data_source: DataSource) — replaces CSV load
+        Scheduler: _watch_dev() / _watch_prod() / start_scheduler(data_source)
+        Client status server: GET /site/status (bearer auth via SITE_SECRET)
+  - [x] Task 5: FLClient.get_current_round() + DevDataSource completeness tests
+  - [x] Task 6: AggregationPolicy Protocol (`server/core/aggregation_policy.py`)
+        AggregationPolicy(Protocol), QuorumPolicy(min_sites), TimeWindowPolicy(window_seconds)
+  - [x] Task 7: SettingsStore + server_settings DB table
+        server/db/settings_store.py: async load/save against server_settings table
+        Alembic migration: 0969c4fdf5dc_add_server_settings_table.py
+        server/db/models.py: ServerSetting ORM model
+  - [x] Task 8: RoundManager extensions
+        set_policy(AggregationPolicy), get_or_create_round(), sync_site_run_info(),
+        mark_site_error(); _site_run_counts / _site_last_run_at start empty (not hardcoded)
+  - [x] Task 9: SitePoller heartbeat (`server/core/site_poller.py`)
+        parse_site_status_urls(raw: str) — parses SITE_STATUS_URLS env var
+        SitePoller._poll_once(), run(), start(); SITE_POLL_SECRET header auth
+        server/config.py: heartbeat_seconds, site_status_urls, site_poll_secret
+  - [x] Task 10: Settings API + /current-round endpoint + server/main.py wiring
+        GET/PUT /settings (admin key auth via X-Admin-Key header)
+        GET /federation/current-round (idempotent — returns open collecting round)
+        Startup event: load persisted policy config, start SitePoller
+        server/api/auth.py: require_admin_token dependency
+  - [x] Task 11: Site card UI + dashboard poll loop
+        SiteCard.set_run_info(run_count, last_run_at) — smart date formatting
+        Dashboard poll loop: extracts run_counts/last_run_at from snapshot
+  - [x] Task 12: Settings page UI — aggregation policy section
+        RadioGroup Quorum/TimeWindow, quorum_field, window_field, heartbeat_field
+        Registered Sites section uses informational text (no hardcoded site rows)
+  - [x] Task 13: PowerShell launchers
+        start_all_server_clients_dev.ps1: DEV_MODE=true, per-site physics vars,
+        status ports 9001-9005
+        start_all_server_clients.ps1: prod launcher (no DEV_MODE)
+
+## Final Review Findings (feature/data-driven-fl, 2026-08-14)
+  - [x] fix(settings-api): PUT /settings had no role check — any site could change policy.
+        Added require_admin_token(X-Admin-Key header) dependency to PUT handler.
+  - [x] fix(settings-api): PUT /settings stored values before validating numeric keys.
+        Added pre-commit _NUMERIC_KEYS validation (raises 422 on bad values);
+        int() conversions in _apply_settings wrapped in try-except with QuorumPolicy fallback.
+  - [x] fix(status-server): GET /site/status was unauthenticated.
+        Added HTTPBearer check against SITE_SECRET when non-empty;
+        SitePoller passes Authorization: Bearer header using site_poll_secret.
+  - [x] fix(docker-compose): missing SITE_STATUS_URLS, CLIENT_STATUS_PORT for all clients.
+        Added all required env vars to server and client services.
