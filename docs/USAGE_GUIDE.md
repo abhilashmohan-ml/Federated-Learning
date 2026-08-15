@@ -336,6 +336,10 @@ curl -X POST http://localhost:8000/federation/round/start \
 
 Or use the API docs at http://localhost:8000/docs.
 
+**You only need to call this once per session.** After round 1 completes, the server automatically starts the next round. Subsequent rounds run without further API calls until `FL_ROUNDS` is reached.
+
+To trigger training on a specific site without starting a server-wide round, use the **Trigger Manual Round** button in the site's client dashboard (http://localhost:855N). This calls `GET /federation/current-round` internally, so the site joins the open round without broadcasting to other sites.
+
 ---
 
 ## 7. Using the server dashboard
@@ -378,8 +382,13 @@ including version number, rounds completed, and sites participated.
 
 ### Graphs page
 
-Comparative charts across all 5 sites — flux decline overlay, LRV distribution,
-and Hermia model consensus (which blocking model each site selected most often).
+Comparative charts across all configured sites, rendered as PNG images via the matplotlib Agg backend:
+
+- **Amin bar chart** — minimum filter area (m²) per site
+- **Flux ratio bar chart** — J_final/J_initial per site (below 0.2 indicates a filter nearing exhaustion)
+- **Hermia placeholder** — model consensus section (shows dominant fouling regime per site when data is available)
+
+Charts update automatically when new site metrics arrive via the server poll loop.
 
 ### Settings page
 
@@ -395,14 +404,14 @@ Open http://localhost:8551 (site_1) through http://localhost:8555 (site_5).
 
 Shows:
 - Server connection URL and site ID
-- Current round number and phase
+- Current round number and phase (idle → training → uploading → done)
 - Training progress bar
-- Last trained model, flux RMSE, best Hermia model, DP noise sigma
+- **Trigger Manual Round** button — joins the current open round on the server and runs local training for this site only; does not affect other sites
 
 ### Local Results tab
 
 Shows site-specific metrics after each local training run:
-- Flux decline J(t) chart
+- **Flux decline J(t) chart** — rendered as a PNG via matplotlib Agg; updates after each completed run
 - LRV, Amin (m²), Flux Ratio, Best Model name
 
 ---

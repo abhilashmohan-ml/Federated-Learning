@@ -57,6 +57,7 @@ The system provides:
 | FR-07 | Aggregation SHALL also trigger after `ROUND_TIMEOUT_SECONDS` (default 300 s) regardless of site count |
 | FR-08 | Server SHALL support up to `FL_ROUNDS` rounds (default 50) per session |
 | FR-09 | The system SHALL run `FL_ROUNDS` rounds before signalling convergence |
+| FR-47 | After each successful aggregation, the server SHALL automatically start the next round without requiring a new `POST /federation/round/start` API call, until `FL_ROUNDS` is reached |
 
 ### 4.2 Physics Modelling
 
@@ -90,6 +91,8 @@ The system provides:
 | FR-25 | Server dashboard SHALL display per-site status (idle / training / uploading / done / error) |
 | FR-26 | Client dashboard SHALL display: current round, local training status, local metrics (flux RMSE, LRV, A_min, flux ratio) |
 | FR-27 | System SHALL emit a structured audit log entry for every federation round start, update received, and aggregation event |
+| FR-48 | The client "Trigger Manual Round" button SHALL call `GET /federation/current-round` to join the active collecting round; it SHALL NOT call `POST /federation/round/start`; each site runs training independently without affecting other sites |
+| FR-49 | Server and client dashboards SHALL render physics charts (J(t) flux decline, Amin bar, flux ratio bar) as PNG images using the matplotlib Agg backend, displayed via `ft.Image` |
 
 ### 4.5 Network and Deployment
 
@@ -129,6 +132,8 @@ The system provides:
 | FR-44 | The server SHALL periodically poll each configured site's `/site/status` endpoint and update run count and last-run timestamp |
 | FR-45 | The server dashboard SHALL display `run_count` and `last_run_at` for each site; `last_run_at` SHALL show `HH:MM` for today's date and `DD Mon` for earlier dates |
 | FR-46 | Site registration SHALL be dynamic — any site_id string is valid; no hardcoded `site_1..site_5` enumeration in production Python code |
+| FR-50 | `SitePoller` SHALL call `RoundManager.sync_site_phase(site_id, phase)` on each successful heartbeat poll, in addition to `sync_site_run_info()`, so all configured sites appear in the server dashboard with their current training phase |
+| FR-51 | `TrainingState` SHALL store `flux_times: list[float]` and `flux_vals: list[float]` from each local training run, updated by `LocalTrainer` after Hermia fitting, for display in the client flux decline chart |
 
 ---
 

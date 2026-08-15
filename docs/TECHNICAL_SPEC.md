@@ -130,7 +130,7 @@ Start a new federation round.
 
 **Implementation:** `RoundManager.start_new_round()` increments `_current_round_id`, creates `FederationRound`, starts `asyncio.Task` timeout guard.
 
-**Client usage:** Called by `FLClient.start_round()` — see Section 12.1.
+**Admin usage:** Called by `FLClient.start_round()` (Section 12.1) and by simulation scripts to force a new round. Clients in normal operation join the open round via `GET /federation/current-round` (Section 19) rather than starting one themselves.
 
 ---
 
@@ -613,20 +613,49 @@ The `build()` method renders an `ft.Button("Trigger Manual Round", icon=ft.Icons
 
 ```python
 def _handle_round_click(self, e: Any) -> None:
+    self._round_button.disabled = True
+    self.page.update()
     threading.Thread(target=self._run_round, daemon=True, name="fl-manual-round").start()
 
 def _run_round(self) -> None:
     try:
-        round_info = self.fl_client.start_round()
+        # Build data source based on DEV_MODE setting
+        if cfg.dev_mode:
+            ds = DevDataSource(physics_cfg, jitter=cfg.dev_jitter_fraction)
+        else:
+            ds = ProdDataSource(data_dir)
+        trainer = LocalTrainer(data_source=ds)
+
+        # Join the open collecting round — does NOT start a new one or affect other sites
+        round_info = self.fl_client.get_current_round()
         self._round_text.value = f"Round  : {round_info.round_id}"
-        self._phase_text.value = f"Phase  : {round_info.status.value}"
+        self._phase_text.value = "Phase  : training"
+        self.page.update()
+
+        update_state(phase="training", current_round_id=round_info.round_id)
+        update = trainer.train_and_prepare_update(round_info.round_id)
+
+        update_state(phase="uploading")
+        self._phase_text.value = "Phase  : uploading"
+        self.page.update()
+
+        self.fl_client.upload_update(update)
+
+        update_state(phase="done", last_round_completed=round_info.round_id, ...)
+        self._phase_text.value = "Phase  : done"
     except Exception as exc:
+        update_state(phase="error")
         self._round_text.value = "Round  : ERROR"
         self._phase_text.value = f"Phase  : {str(exc)[:40]}"
+    self._round_button.disabled = False
     self.page.update()
 ```
 
-The daemon thread ensures the Flet UI event loop is never blocked during the HTTP round-trip to the server. `page.update()` is always called (even on error) so the operator sees feedback immediately.
+Key design decisions:
+- Uses `get_current_round()` (not `start_round()`) so clicking the button on one site does **not** trigger or interfere with other sites — each site runs its own training independently against the shared round.
+- Phase text progresses through `"training"` → `"uploading"` → `"done"` so the operator sees incremental feedback.
+- `page.update()` is called three times (training start, uploading start, done/error) so the UI remains responsive.
+- Button is disabled before the thread starts and re-enabled in the `finally`-equivalent path, preventing double-clicks.
 
 ### 13.2 `client/ui/app.py — main()`
 
@@ -740,8 +769,10 @@ class SitePoller:
 **`_poll_once` logic:**
 1. For each `(site_id, base_url)` in `parse_site_status_urls(settings.site_status_urls)`:
 2. `GET {base_url}/site/status` with `Authorization: Bearer {settings.site_poll_secret}` (when non-empty)
-3. On HTTP 200: extract `run_count`, parse `last_run_at` → call `rm.sync_site_run_info()`
+3. On HTTP 200: extract `run_count`, parse `last_run_at` → call `rm.sync_site_run_info(site_id, run_count, last_run_at)` to update run counts; also extract `phase` → call `rm.sync_site_phase(site_id, phase)` to keep site status current in the dashboard
 4. On any exception: call `rm.mark_site_error(site_id)` — never raises
+
+`sync_site_phase(site_id, phase)` maps the raw phase string from `/site/status` to a `SiteStatus` enum value. It never downgrades a `DONE` site mid-round (a site that already submitted its update stays `DONE` until the round resets).
 
 **Started at server startup** inside `_on_startup()` FastAPI event handler.
 
@@ -767,7 +798,7 @@ GET /site/status
 }
 ```
 
-`run_count` and `last_run_at` are read from `TrainingState` (shared state object updated by Scheduler after each successful training run). `phase` is one of `"idle"`, `"training"`, `"uploading"`.
+`run_count` and `last_run_at` are read from `TrainingState` (shared state object updated by Scheduler after each successful training run). `phase` is one of `"idle"`, `"training"`, `"uploading"`, `"done"`, `"error"`.
 
 **Started by `start_status_server(port: int)`** in `client/main.py` before `start_scheduler()`.
 
@@ -787,3 +818,87 @@ def get_current_round(self) -> FederationRound:
 ```
 
 Used by `_watch_prod()` in production mode: calls `get_current_round()` to find the open round ID, then trains and uploads. This decouples prod clients from needing a server-initiated round start.
+
+Also used by `StatusPage._run_round()` (the "Trigger Manual Round" button) — see Section 13.1.
+
+---
+
+## 20. RoundManager Auto-Round Continuation (`server/core/round_manager.py`)
+
+After a successful aggregation, `_aggregate()` automatically starts the next round without requiring a new `POST /federation/round/start` API call:
+
+```python
+async def _aggregate(self, round_id: int) -> None:
+    ...
+    r.status = RoundStatus.COMPLETE
+    log.info("round_complete", round_id=round_id, model_version=gm.version)
+
+    # Auto-start next round if below FL_ROUNDS limit.
+    # Reset DONE sites to IDLE so they can participate again.
+    if self._current_round_id < self._settings.fl_rounds:
+        for site_id in list(self._site_statuses.keys()):
+            if self._site_statuses[site_id] == SiteStatus.DONE:
+                self._site_statuses[site_id] = SiteStatus.IDLE
+        task = asyncio.create_task(self.start_new_round())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+```
+
+**Why `_background_tasks`?** `asyncio.create_task()` returns a `Task` object that the event loop holds only weakly. If the local variable goes out of scope before the coroutine completes, the GC may cancel it. Storing strong references in `_background_tasks` and using `add_done_callback(discard)` keeps tasks alive until they finish, then auto-removes them.
+
+**Quorum fires every round**, not just the first. Each completed round immediately opens the next collecting window, so sites train continuously without manual intervention until `FL_ROUNDS` is reached.
+
+---
+
+## 21. TrainingState Flux Curve (`client/engine/state.py`)
+
+`TrainingState` stores the full flux time series from each local training run:
+
+```python
+@dataclass
+class TrainingState:
+    ...
+    flux_times: list[float] = dataclasses.field(default_factory=list)
+    flux_vals:  list[float] = dataclasses.field(default_factory=list)
+```
+
+`LocalTrainer.train_and_prepare_update()` writes these after fitting the Hermia models:
+
+```python
+update_state(flux_times=list(t_arr), flux_vals=list(flux_arr))
+```
+
+The client `LocalResultsPage` reads `get_state().flux_times` / `get_state().flux_vals` and renders a J(t) line chart as a PNG via the matplotlib Agg backend (see Section 22).
+
+---
+
+## 22. Dashboard Chart Rendering (server + client)
+
+Flet ≥ 0.85 has no native chart widget. Charts are rendered server-side using the **matplotlib Agg backend**, encoded as PNG bytes, and displayed via `ft.Image(src=<bytes>)`:
+
+```python
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import io
+
+fig, ax = plt.subplots(figsize=(8, 3))
+ax.plot(times, flux)
+buf = io.BytesIO()
+fig.savefig(buf, format="png", dpi=96, bbox_inches="tight")
+plt.close(fig)
+png_bytes = buf.getvalue()
+
+# Flet display:
+ft.Image(src=png_bytes, fit=ft.BoxFit.CONTAIN, expand=True)
+```
+
+Three chart types are implemented:
+
+| Component | Location | Chart |
+|-----------|----------|-------|
+| `FluxChart(multi_site=True)` | Server Graphs page | Amin bar chart — one bar per site |
+| `LRVChart(multi_site=True)` | Server Graphs page | Flux ratio bar chart — one bar per site |
+| `FluxChart(multi_site=False)` | Client Local Results page | J(t) line chart — flux decline over time |
+
+`FluxChart.update_data(site_metrics: dict[str, dict[str, float]])` accepts the same `site_metrics` dict that `RoundManager.get_status_snapshot()` returns in the `"site_metrics"` key.

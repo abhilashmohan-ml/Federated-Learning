@@ -598,6 +598,8 @@ curl -s -X POST http://localhost:8000/federation/round/start `
 > **You only start the round once.** `POST /federation/round/start` is called a single time on the
 > server. All 5 site clients (already running from Step 9) automatically detect the new round and
 > begin training in parallel — you do **not** repeat this for each site.
+> After round 1 completes, the server automatically opens round 2, 3, … up to `FL_ROUNDS` without
+> any further API calls from you. Use `GET /federation/round/{id}` to poll status of each round.
 
 1. Open **http://localhost:8000/docs** in your browser
 2. Find **`POST /auth/token`** → click **Try it out** → paste:
@@ -631,6 +633,8 @@ Round progress also appears live on the server dashboard at **http://localhost:8
 A round completes when either:
 - `MIN_SITES_PER_ROUND` clients post their updates (default: 2 in dev `.env`)
 - `ROUND_TIMEOUT_SECONDS` elapses (default: 300 s) — whichever comes first
+
+**Rounds auto-continue.** After round 1 completes, the server immediately opens round 2. You do **not** need to call `POST /federation/round/start` again — subsequent rounds happen automatically until `FL_ROUNDS` is reached.
 
 To run **all FL rounds automatically** (no manual trigger per round), use the simulation script instead:
 
@@ -857,8 +861,8 @@ When running venv mode, watch multiple terminals. Key log lines to look for:
 | `site_N posted update — delta_W norm: 0.023` | Site uploaded its DP-noised gradient |
 | `Aggregating — N/5 updates received` | Server has enough updates to aggregate |
 | `FedProx weighted average complete` | New global model computed |
-| `Round N COMPLETED — model v2 saved` | Round done, model stored in DB |
-| `Round N CONVERGED` | All rounds done, FL training complete |
+| `Round N COMPLETED — model v2 saved` | Round done, model stored in DB; next round starts automatically |
+| `Round N CONVERGED` | All rounds done (N == FL_ROUNDS), FL training complete |
 
 ---
 
