@@ -1,9 +1,9 @@
 # Technical Specification
 ## Viral Filtration Federated Learning Platform
 
-**Version:** 1.0  
-**Date:** 2026-07-04  
-**Status:** Implemented (v0.1.0)
+**Version:** 2.0  
+**Date:** 2026-08-15  
+**Status:** Implemented (v0.2.0 — data-driven FL branch)
 
 ---
 
@@ -186,11 +186,9 @@ List all site statuses.
 ```json
 {
   "sites": {
-    "site_1": "done",
-    "site_2": "training",
-    "site_3": "idle",
-    "site_4": "idle",
-    "site_5": "uploading"
+    "site_alpha": "done",
+    "site_boston": "training",
+    "site_chicago": "idle"
   }
 }
 ```
@@ -199,7 +197,60 @@ Site status enum: `registered | idle | training | uploading | done | error`
 
 ---
 
-### 2.3 Models — `/models`
+#### GET `/federation/current-round`
+
+Return the open `COLLECTING` round, or create one if none exists. Idempotent.
+
+**Response 200:** `FederationRound` JSON (same schema as `/federation/round/start` response).
+
+Used by production-mode clients that push updates without waiting for a server-initiated round.
+
+---
+
+### 2.4 Settings — `/settings`
+
+All routes require `Authorization: Bearer <access_token>`.
+
+#### GET `/settings`
+
+Return current aggregation policy configuration from `server_settings` table.
+
+**Response 200:**
+```json
+{
+  "aggregation_mode": "quorum",
+  "quorum_min_sites": "3",
+  "time_window_seconds": "1800",
+  "heartbeat_seconds": "30"
+}
+```
+
+---
+
+#### PUT `/settings`
+
+Update one or more settings keys and apply the new policy live. Requires `X-Admin-Key: <SERVER_SECRET_KEY>` header.
+
+**Request body:**
+```json
+{
+  "aggregation_mode": "time_window",
+  "time_window_seconds": "3600",
+  "heartbeat_seconds": "60"
+}
+```
+
+**Response 200:**
+```json
+{"status": "ok", "config": {"aggregation_mode": "time_window", ...}}
+```
+
+**Response 403:** Missing or incorrect `X-Admin-Key` header.  
+**Response 422:** Numeric key contains non-integer value.
+
+---
+
+### 2.7 Models — `/models`
 
 #### GET `/models/global-model`
 
@@ -423,7 +474,7 @@ Token revocation is persisted in the `revoked_tokens` table. The access token is
 
 | Env Var | Python Field | Type | Default | Description |
 |---------|-------------|------|---------|-------------|
-| `SERVER_SECRET_KEY` | `secret_key` | str | `"CHANGE_ME"` | JWT signing key |
+| `SERVER_SECRET_KEY` | `secret_key` | str | `"CHANGE_ME"` | JWT signing key; also used as X-Admin-Key for PUT /settings |
 | `SERVER_DB_URL` | `db_url` | str | sqlite+aiosqlite://... | SQLAlchemy async DSN |
 | `SERVER_HOST` | `host` | str | `"0.0.0.0"` | Bind address |
 | `SERVER_PORT` | `port` | int | 8000 | FastAPI port |
@@ -433,21 +484,25 @@ Token revocation is persisted in the `revoked_tokens` table. The access token is
 | `FLET_SERVER_PORT` | `flet_port` | int | 8550 | Flet dashboard port |
 | `FL_ROUNDS` | `fl_rounds` | int | 50 | Total FL rounds |
 | `FEDPROX_MU` | `fedprox_mu` | float | 0.01 | FedProx μ |
-| `MIN_SITES_PER_ROUND` | `min_sites_per_round` | int | 3 | Quorum to trigger aggregation |
+| `MIN_SITES_PER_ROUND` | `min_sites_per_round` | int | 3 | Default quorum (overridden by DB settings) |
 | `ROUND_TIMEOUT_SECONDS` | `round_timeout_seconds` | int | 300 | Auto-aggregate timeout |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `access_token_expire_minutes` | int | 15 | JWT access token TTL |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `refresh_token_expire_days` | int | 7 | JWT refresh token TTL |
+| `HEARTBEAT_SECONDS` | `heartbeat_seconds` | int | 30 | SitePoller poll interval (overridden by DB settings) |
+| `SITE_STATUS_URLS` | `site_status_urls` | str | `""` | `"site_a:http://a:9001,site_b:http://b:9001"` — sites to poll |
+| `SITE_POLL_SECRET` | `site_poll_secret` | str | `""` | Bearer token sent in Authorization header when polling sites |
 
 ### Client (`client/config.py`)
 
 | Env Var | Python Field | Type | Default | Description |
 |---------|-------------|------|---------|-------------|
-| `SITE_ID` | `site_id` | str | `"site_1"` | Site identifier |
+| `SITE_ID` | `site_id` | str | `"site_1"` | Site identifier (any unique string) |
 | `SERVER_URL` | `server_url` | str | `http://localhost:8000` | FL server base URL |
-| `SITE_SECRET` | `site_secret` | str | `"secret_site_1"` | Auth secret (must match server DB) |
+| `SITE_SECRET` | `site_secret` | str | `""` | Auth secret for both FL JWT and /site/status bearer auth |
 | `DP_NOISE_SIGMA` | `dp_noise_sigma` | float | 0.01 | Gaussian DP noise σ |
-| `LOCAL_DATA_PATH` | `local_data_path` | str | `./data/site_1/filtration.csv` | Path to filtration CSV |
+| `LOCAL_DATA_PATH` | `local_data_path` | str | `./data/site_1/filtration.csv` | Path to filtration CSV (prod mode) |
 | `FLET_CLIENT_PORT` | `flet_client_port` | int | 8551 | Flet UI port |
+| `CLIENT_STATUS_PORT` | `client_status_port` | int | 9001 | Port for `/site/status` FastAPI endpoint |
 | `VERIFY_SSL` | `verify_ssl` | bool | True | SSL cert verification |
 | `CONNECT_TIMEOUT` | `connect_timeout` | int | 10 | TCP connect timeout (s) |
 | `REQUEST_TIMEOUT` | `request_timeout` | int | 60 | Read/write timeout (s) |
@@ -455,6 +510,14 @@ Token revocation is persisted in the `revoked_tokens` table. The access token is
 | `LOCAL_EPOCHS` | `local_epochs` | int | 5 | PINN training epochs per round |
 | `LEARNING_RATE` | `learning_rate` | float | 0.001 | Local optimiser LR |
 | `FEDPROX_MU` | `fedprox_mu` | float | 0.01 | FedProx μ |
+| `DEV_MODE` | `dev_mode` | bool | False | If true, use `DevDataSource` instead of CSV files |
+| `DEV_JITTER_FRACTION` | `dev_jitter_fraction` | float | 0.05 | Noise fraction for synthetic flux jitter |
+| `DEV_J0` | `dev_j0` | float | 150.0 | Synthetic initial flux (LMH) |
+| `DEV_K1` | `dev_k1` | float | 0.015 | Combined 1-A k1 parameter |
+| `DEV_K2` | `dev_k2` | float | 0.002 | Combined 1-A k2 parameter |
+| `DEV_NOISE` | `dev_noise` | float | 2.0 | Additive Gaussian noise σ (LMH) |
+| `DEV_TMP_BASE` | `dev_tmp_base` | float | 1.0 | Synthetic TMP base (bar) |
+| `DATA_POLL_SECONDS` | `data_poll_seconds` | int | 60 | Interval between directory polls in ProdDataSource |
 
 ---
 
@@ -575,3 +638,152 @@ The daemon thread ensures the Flet UI event loop is never blocked during the HTT
 4. Pass `fl` to `StatusPage(page, fl_client=fl)`.
 
 This guarantees `StatusPage` always holds a fully-authenticated client before any button click can occur.
+
+---
+
+## 14. DataSource Abstraction (`client/engine/data_source.py`)
+
+### 14.1 Protocol
+
+```python
+class DataSource(Protocol):
+    def get_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        ...  # returns (time_min, flux_lmh, tmp_bar) arrays
+```
+
+### 14.2 `DevDataSource`
+
+```python
+PHYSICS_DEFAULTS: dict[str, float] = {
+    "J0": 150.0, "k1": 0.015, "k2": 0.0020, "noise": 2.0, "tmp_base": 1.0
+}
+
+class DevDataSource:
+    def __init__(self, physics_cfg: dict[str, float], jitter: float = 0.05) -> None: ...
+    def get_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]: ...
+```
+
+Generates `t = np.linspace(0, 60, 61)`, flux from Combined 1-A `J(t) = J0/(1+k1·t)^2 * exp(-k2·t)` with Gaussian jitter, TMP from `tmp_base + noise`.
+
+### 14.3 `ProdDataSource`
+
+```python
+class ProdDataSource:
+    def __init__(self, data_dir: str) -> None: ...
+    def get_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]: ...
+```
+
+Scans `data_dir` for `filtration_*.csv` files. Compares against `.processed.json` sidecar. Reads first unprocessed file, marks it processed. Raises `NoNewDataError` if no new files.
+
+---
+
+## 15. AggregationPolicy Protocol (`server/core/aggregation_policy.py`)
+
+```python
+class AggregationPolicy(Protocol):
+    def should_aggregate(
+        self,
+        updates_since_last: int,
+        sites_contributed: set[str],
+        elapsed_seconds: float,
+    ) -> bool: ...
+
+@dataclass
+class QuorumPolicy:
+    min_sites: int = 3
+    def should_aggregate(self, updates_since_last, sites_contributed, elapsed_seconds) -> bool:
+        return len(sites_contributed) >= self.min_sites
+
+@dataclass
+class TimeWindowPolicy:
+    window_seconds: int = 1800
+    def should_aggregate(self, updates_since_last, sites_contributed, elapsed_seconds) -> bool:
+        return updates_since_last >= 1 and elapsed_seconds >= self.window_seconds
+```
+
+Policy is set via `RoundManager.set_policy(policy: AggregationPolicy)`. Change takes effect for the current round immediately.
+
+---
+
+## 16. SettingsStore (`server/db/settings_store.py`)
+
+```python
+DEFAULTS: dict[str, str] = {
+    "aggregation_mode": "quorum",
+    "quorum_min_sites": "3",
+    "time_window_seconds": "1800",
+    "heartbeat_seconds": "30",
+}
+
+class SettingsStore:
+    async def load(self, db: AsyncSession) -> dict[str, str]: ...
+    async def save(self, db: AsyncSession, key: str, value: str) -> None: ...
+```
+
+`load()` inserts `DEFAULTS` rows for any missing keys on first call. `save()` uses SQLAlchemy `merge()` (upsert behaviour). All values stored as strings.
+
+---
+
+## 17. SitePoller (`server/core/site_poller.py`)
+
+```python
+def parse_site_status_urls(raw: str) -> dict[str, str]:
+    """Parse "site_a:http://a:9001,site_b:http://b:9001" → {"site_a": "http://a:9001", ...}"""
+
+class SitePoller:
+    def __init__(self, round_manager: RoundManager, settings: ServerSettings) -> None: ...
+    async def _poll_once(self) -> None: ...
+    async def run(self) -> None: ...  # infinite heartbeat loop
+    def start(self) -> None: ...     # asyncio.create_task(self.run())
+```
+
+**`_poll_once` logic:**
+1. For each `(site_id, base_url)` in `parse_site_status_urls(settings.site_status_urls)`:
+2. `GET {base_url}/site/status` with `Authorization: Bearer {settings.site_poll_secret}` (when non-empty)
+3. On HTTP 200: extract `run_count`, parse `last_run_at` → call `rm.sync_site_run_info()`
+4. On any exception: call `rm.mark_site_error(site_id)` — never raises
+
+**Started at server startup** inside `_on_startup()` FastAPI event handler.
+
+---
+
+## 18. Client Status Server (`client/comms/status_server.py`)
+
+FastAPI app running as a daemon thread on `CLIENT_STATUS_PORT`:
+
+```python
+GET /site/status
+```
+
+**Authentication:** When `ClientSettings.site_secret` is non-empty, requires `Authorization: Bearer <site_secret>`. Returns HTTP 401 if missing or incorrect.
+
+**Response:**
+```json
+{
+  "site_id": "site_1",
+  "run_count": 12,
+  "last_run_at": "2026-08-15T10:30:00+00:00",
+  "phase": "idle"
+}
+```
+
+`run_count` and `last_run_at` are read from `TrainingState` (shared state object updated by Scheduler after each successful training run). `phase` is one of `"idle"`, `"training"`, `"uploading"`.
+
+**Started by `start_status_server(port: int)`** in `client/main.py` before `start_scheduler()`.
+
+---
+
+## 19. `FLClient.get_current_round()` (`client/comms/fl_client.py`)
+
+```python
+def get_current_round(self) -> FederationRound:
+    url = f"{self.settings.server_url}/federation/current-round"
+    resp = self._request("GET", url, headers=self.auth_headers)
+    if resp.status_code == 401:
+        self._do_refresh()
+        resp = self._request("GET", url, headers=self.auth_headers)
+    resp.raise_for_status()
+    return FederationRound(**resp.json())
+```
+
+Used by `_watch_prod()` in production mode: calls `get_current_round()` to find the open round ID, then trains and uploads. This decouples prod clients from needing a server-initiated round start.

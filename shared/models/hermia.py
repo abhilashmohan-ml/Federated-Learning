@@ -54,6 +54,7 @@ from typing import Dict
 import numpy as np
 from scipy.optimize import curve_fit
 
+from shared.utils.logging_config import get_logger
 from shared.utils.constants import (
     J_MIN, J_MAX,
     KS_BOUNDS, KI_BOUNDS, KC_BOUNDS, KCF_BOUNDS, K1_BOUNDS, K2_BOUNDS,
@@ -400,16 +401,16 @@ def fit_all_models(time: np.ndarray, flux: np.ndarray) -> Dict[str, HermiaResult
         fit_combined_1a,
     ]
 
+    _log = get_logger(__name__)
     results: Dict[str, HermiaResult] = {}
 
     for fitter in fitters:
         try:
             r = fitter(time, flux)
             results[r.model_name] = r
-        except Exception:
-            # curve_fit may raise RuntimeError if it fails to converge.
-            # We silently skip failed models — the remaining ones still compete.
-            pass
+        except Exception as exc:
+            # curve_fit raises RuntimeError on convergence failure; log and skip.
+            _log.warning("hermia_fit_failed", fitter=getattr(fitter, "__name__", repr(fitter)), error=str(exc))
 
     if results:
         # `min(iterable, key=...)` returns the item with the smallest key value.

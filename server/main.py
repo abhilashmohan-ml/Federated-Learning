@@ -57,12 +57,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from server.api import auth, federation, models, health, internal   # our API modules
+from server.api import settings as settings_api
 from server.config import get_settings
-from shared.utils.logging_config import configure_logging
+from server.core.aggregation_policy import QuorumPolicy, TimeWindowPolicy
+from server.core.round_manager import get_round_manager
+from server.core.site_poller import SitePoller
+from server.db.database import AsyncSessionLocal
+from server.db.settings_store import SettingsStore
+from shared.utils.logging_config import configure_logging, get_logger
 
 # Configure structured logging before anything else
 configure_logging()
 settings = get_settings()
+log = get_logger(__name__)
 
 # Create the FastAPI application instance
 app = FastAPI(
@@ -100,11 +107,45 @@ else:
 #
 # `prefix` prepends a path to every route in that router.
 # `tags` groups the endpoints under a named section in the /docs UI.
-app.include_router(auth.router,       prefix="/auth",       tags=["auth"])
-app.include_router(federation.router, prefix="/federation", tags=["federation"])
-app.include_router(models.router,     prefix="/models",     tags=["models"])
-app.include_router(health.router,     prefix="/health",     tags=["health"])
-app.include_router(internal.router,   prefix="/internal",   tags=["internal"])
+app.include_router(auth.router,          prefix="/auth",       tags=["auth"])
+app.include_router(federation.router,    prefix="/federation", tags=["federation"])
+app.include_router(models.router,        prefix="/models",     tags=["models"])
+app.include_router(health.router,        prefix="/health",     tags=["health"])
+app.include_router(internal.router,      prefix="/internal",   tags=["internal"])
+app.include_router(settings_api.router,  prefix="/settings",   tags=["settings"])
+
+
+@app.on_event("startup")  # type: ignore[attr-defined]
+async def _on_startup() -> None:
+    """Load persisted policy config and start the site heartbeat poller."""
+    if settings.secret_key == "CHANGE_ME":
+        log.critical(
+            "insecure_default_secret_key",
+            note="SERVER_SECRET_KEY is still 'CHANGE_ME' — JWTs can be forged by anyone. "
+                 "Set SERVER_SECRET_KEY to a strong random secret before production use.",
+        )
+    try:
+        async with AsyncSessionLocal() as db:
+            config = await SettingsStore().load(db)
+    except Exception:
+        config = {}
+
+    rm = get_round_manager()
+    mode = config.get("aggregation_mode", "quorum")
+    try:
+        if mode == "time_window":
+            rm.set_policy(
+                TimeWindowPolicy(window_seconds=int(config["time_window_seconds"]))
+            )
+        else:
+            rm.set_policy(
+                QuorumPolicy(min_sites=int(config["quorum_min_sites"]))
+            )
+    except (ValueError, KeyError) as exc:
+        log.warning("startup_policy_load_failed_using_default", error=str(exc))
+        rm.set_policy(QuorumPolicy())
+
+    SitePoller(rm, get_settings()).start()
 
 
 if __name__ == "__main__":

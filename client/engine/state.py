@@ -16,6 +16,8 @@ class TrainingState:
     last_flux_ratio: Optional[float] = None
     last_hermia_model: Optional[str] = None
     last_round_completed: int = 0
+    run_count:            int            = 0
+    last_run_at:          Optional[str]  = None  # ISO-8601 UTC string, e.g. "2026-08-14T14:32:00+00:00"
 
 
 _lock = threading.Lock()

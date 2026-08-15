@@ -68,13 +68,15 @@
 <section id="overview" class="tab-content active">
   <div class="intro">
     <h2>System Overview</h2>
-    <p>Top-level view of the five manufacturing sites, the central FL server, and the shared library.
-       Each site runs an isolated Docker container. Only gradient updates (delta_W) travel between
-       containers -- raw filtration data never leaves the site.</p>
+    <p>Top-level view of the manufacturing sites, the central FL server, and the shared library.
+       Each site runs in an isolated environment. Only gradient updates (delta_W) travel between
+       containers -- raw filtration data never leaves the site. Sites are dynamically registered
+       (no hardcoded site_1..site_5). Two data modes: Dev (synthetic) and Prod (CSV directory poll).</p>
     <ul>
       <li><strong>Shared Library</strong> -- physics models, schemas, crypto: used by both server and all clients</li>
-      <li><strong>FL Server</strong> -- aggregates model updates, manages rounds, issues JWTs</li>
-      <li><strong>Site Clients (x5)</strong> -- load data locally, train, add DP noise, upload delta_W</li>
+      <li><strong>FL Server</strong> -- aggregates model updates, manages rounds, issues JWTs; polls site status via SitePoller</li>
+      <li><strong>Site Clients</strong> -- DataSource (Dev/Prod) → LocalTrainer → DP noise → upload delta_W; expose /site/status</li>
+      <li><strong>AggregationPolicy</strong> -- QuorumPolicy or TimeWindowPolicy; changeable live via PUT /settings</li>
     </ul>
   </div>
   <div class="diagram-wrap">
@@ -88,56 +90,49 @@ graph LR
     end
 
     subgraph SERVER["FL Server  port 8000 + Flet 8550"]
-        SRV_API["API Layer\nauth, federation\nmodels, health"]
-        SRV_CORE["Core\nRoundManager\nFedProxAggregator\nModelRegistry"]
-        SRV_DB["Database\nSQLAlchemy, Alembic\n4 tables"]
-        SRV_UI["Dashboard UI\nFlet"]
+        SRV_API["API Layer\nauth, federation\nmodels, health\nsettings (admin)"]
+        SRV_CORE["Core\nRoundManager + AggregationPolicy\nFedProxAggregator\nModelRegistry\nSitePoller (heartbeat)"]
+        SRV_DB["Database\nSQLAlchemy, Alembic\n5 tables incl. server_settings"]
+        SRV_UI["Dashboard UI\nFlet (run counts + policy)"]
+        SRV_SETTINGS["SettingsStore\npersists policy to DB"]
         SRV_API --> SRV_CORE
         SRV_CORE --> SRV_DB
         SRV_CORE --> SRV_UI
+        SRV_CORE --> SRV_SETTINGS
+        SRV_SETTINGS --> SRV_DB
     end
 
-    subgraph S1["Site 1  port 8551"]
-        C1_ENG["Engine\nDataLoader, LocalTrainer\nScheduler"]
-        C1_COMMS["Comms\nFLClient, Heartbeat"]
-        C1_DATA[("filtration.csv\nlocal read-only")]
-        C1_DATA --> C1_ENG
+    subgraph S1["Site N  Flet :855N  Status :900N"]
+        C1_ENG["Engine\nDataSource (Dev/Prod)\nLocalTrainer, Scheduler"]
+        C1_COMMS["Comms\nFLClient, Heartbeat\nStatusServer"]
+        C1_DATA_DEV[("DevDataSource\nSynthetic flux\nDEV_MODE=true")]
+        C1_DATA_PROD[("ProdDataSource\nfiltration_*.csv\nPROD mode")]
+        C1_DATA_DEV --> C1_ENG
+        C1_DATA_PROD --> C1_ENG
         C1_ENG --> C1_COMMS
     end
 
-    subgraph S2["Site 2  port 8552"]
-        S2_NODE["Engine + Comms"]
-    end
-
-    subgraph S3["Site 3  port 8553"]
-        S3_NODE["Engine + Comms"]
-    end
-
-    subgraph S45["Sites 4 and 5  ports 8554-8555"]
-        S45_NODE["Engine + Comms"]
+    subgraph S2["Site M  Flet :855M  Status :900M"]
+        S2_NODE["Engine + Comms\n(same structure as Site N)"]
     end
 
     SHARED -->|imports| SERVER
     SHARED -->|imports| S1
     SHARED -->|imports| S2
-    SHARED -->|imports| S3
-    SHARED -->|imports| S45
 
     C1_COMMS -->|"POST /federation/update\ndelta_W DP-noised"| SRV_API
     SRV_API  -->|"JWT tokens"| C1_COMMS
     SRV_CORE -->|"GET /models/global-model"| C1_COMMS
     C1_COMMS -->|"GET /health/ every 30s"| SRV_API
+    SRV_CORE -->|"GET /site/status\n(heartbeat poll)"| C1_COMMS
 
     S2_NODE  -->|"delta_W DP-noised"| SRV_API
-    S3_NODE  -->|"delta_W DP-noised"| SRV_API
-    S45_NODE -->|"delta_W DP-noised"| SRV_API
+    SRV_CORE -->|"GET /site/status\n(heartbeat)"| S2_NODE
 
     style SHARED fill:#e8eaf6,stroke:#3949ab,color:#1a237e
     style SERVER fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
     style S1     fill:#fff3e0,stroke:#f57c00,color:#e65100
     style S2     fill:#fff3e0,stroke:#f57c00,color:#e65100
-    style S3     fill:#fff3e0,stroke:#f57c00,color:#e65100
-    style S45    fill:#fff3e0,stroke:#f57c00,color:#e65100
     </div>
   </div>
 </section>

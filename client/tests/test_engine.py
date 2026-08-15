@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from client.engine.data_loader import load_filtration_csv, REQUIRED
-from client.engine.scheduler import _watch, start_scheduler, POLL_SECONDS
+from client.engine.scheduler import _watch_dev, _watch_prod, start_scheduler, POLL_SECONDS
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -90,18 +90,21 @@ def _make_hermia_result(selected: bool = True, model_name: str = "combined_1a"):
 
 
 class TestLocalTrainer:
-    def _build_csv(self, tmp_path) -> str:
-        p = tmp_path / "data.csv"
-        rows = [(i * 3.0, 100.0 - i * 1.5, 1.0) for i in range(20)]
-        _write_csv(str(p), rows)
-        return str(p)
+    def _mock_ds(self, n: int = 20) -> MagicMock:
+        """Return a mock DataSource that produces n-row filtration arrays."""
+        ds = MagicMock()
+        ds.get_data.return_value = (
+            np.arange(0, n, dtype=np.float64) * 3.0,
+            np.array([100.0 - i * 1.5 for i in range(n)], dtype=np.float64),
+            np.ones(n, dtype=np.float64),
+        )
+        return ds
 
-    def test_train_basic_returns_model_update(self, tmp_path) -> None:
-        csv_path = self._build_csv(tmp_path)
+    def test_train_basic_returns_model_update(self) -> None:
         mock_result = _make_hermia_result(selected=True)
 
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+                   return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models",
                    return_value={"combined_1a": mock_result}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
@@ -109,7 +112,7 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
-            trainer = LocalTrainer()
+            trainer = LocalTrainer(data_source=self._mock_ds())
             update = trainer.train_and_prepare_update(round_id=1)
 
         from shared.schemas.federation import ModelUpdate
@@ -119,13 +122,12 @@ class TestLocalTrainer:
         assert update.hermia_best_model == "combined_1a"
         assert update.n_samples == 20
 
-    def test_train_local_metrics_set(self, tmp_path) -> None:
-        csv_path = self._build_csv(tmp_path)
+    def test_train_local_metrics_set(self) -> None:
         mock_result = _make_hermia_result(selected=True)
         mock_result.rmse = 2.5
 
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+                   return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models",
                    return_value={"combined_1a": mock_result}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.75), \
@@ -133,7 +135,7 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
-            trainer = LocalTrainer()
+            trainer = LocalTrainer(data_source=self._mock_ds())
             update = trainer.train_and_prepare_update(round_id=3)
 
         assert "flux_rmse" in update.local_metrics
@@ -141,13 +143,12 @@ class TestLocalTrainer:
         assert "amin_m2" in update.local_metrics
         assert update.local_metrics["flux_ratio"] == pytest.approx(0.75)
 
-    def test_train_fallback_to_first_when_no_selected(self, tmp_path) -> None:
+    def test_train_fallback_to_first_when_no_selected(self) -> None:
         """When no HermiaResult has selected=True, falls back to first in dict."""
-        csv_path = self._build_csv(tmp_path)
         mock_result = _make_hermia_result(selected=False, model_name="standard")
 
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+                   return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models",
                    return_value={"standard": mock_result}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
@@ -155,33 +156,31 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
-            trainer = LocalTrainer()
+            trainer = LocalTrainer(data_source=self._mock_ds())
             update = trainer.train_and_prepare_update(round_id=2)
 
         assert update.hermia_best_model == "standard"
 
-    def test_empty_hermia_results_raises_index_error(self, tmp_path) -> None:
-        """fit_all_models returning {} → list({})[0] raises IndexError (documented behavior)."""
-        csv_path = self._build_csv(tmp_path)
+    def test_empty_hermia_results_raises_runtime_error(self) -> None:
+        """fit_all_models returning {} → explicit RuntimeError with descriptive message."""
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+                   return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models", return_value={}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
              patch("client.engine.local_trainer.compute_amin", return_value=0.05), \
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
-            with pytest.raises(IndexError):
-                LocalTrainer().train_and_prepare_update(round_id=1)
+            with pytest.raises(RuntimeError, match="All Hermia models failed"):
+                LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(round_id=1)
 
-    def test_all_five_local_metric_keys_present(self, tmp_path) -> None:
-        csv_path = self._build_csv(tmp_path)
+    def test_all_five_local_metric_keys_present(self) -> None:
         mock_result = _make_hermia_result(selected=True)
         mock_result.aic = -60.0
         mock_result.bic = -55.0
 
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(local_data_path=csv_path)), \
+                   return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models",
                    return_value={"combined_1a": mock_result}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.75), \
@@ -189,7 +188,7 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
-            update = LocalTrainer().train_and_prepare_update(round_id=1)
+            update = LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(round_id=1)
 
         assert "flux_rmse" in update.local_metrics
         assert "flux_ratio" in update.local_metrics
@@ -199,8 +198,7 @@ class TestLocalTrainer:
         assert update.local_metrics["best_aic"] == pytest.approx(-60.0)
         assert update.local_metrics["best_bic"] == pytest.approx(-55.0)
 
-    def test_dp_noise_applied(self, tmp_path) -> None:
-        csv_path = self._build_csv(tmp_path)
+    def test_dp_noise_applied(self) -> None:
         mock_result = _make_hermia_result(selected=True)
         noise_called_with = {}
 
@@ -209,8 +207,7 @@ class TestLocalTrainer:
             return w
 
         with patch("client.engine.local_trainer.get_client_settings",
-                   return_value=_mock_client_settings(
-                       local_data_path=csv_path, dp_noise_sigma=0.05)), \
+                   return_value=_mock_client_settings(dp_noise_sigma=0.05)), \
              patch("client.engine.local_trainer.fit_all_models",
                    return_value={"combined_1a": mock_result}), \
              patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
@@ -218,26 +215,37 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=capture_noise):
             from client.engine.local_trainer import LocalTrainer
-            LocalTrainer().train_and_prepare_update(round_id=1)
+            LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(round_id=1)
 
         assert noise_called_with.get("sigma") == pytest.approx(0.05)
 
 
-# ── scheduler._watch ──────────────────────────────────────────────────────────
+# ── scheduler._watch_dev ──────────────────────────────────────────────────────
 
-class TestWatch:
+class TestWatchDev:
+    """Tests for the dev-mode scheduler loop."""
+
     def _mock_fl(self, auth_raises: bool = False) -> MagicMock:
         fl = MagicMock()
         if auth_raises:
             fl.authenticate.side_effect = Exception("auth failed")
         return fl
 
-    def test_auth_failure_returns_early(self) -> None:
+    def _mock_update(
+        self, flux_ratio: float = 0.88, amin: float = 0.04, model: str = "combined_1a"
+    ) -> MagicMock:
+        u = MagicMock()
+        u.local_metrics = {"flux_ratio": flux_ratio, "amin_m2": amin}
+        u.hermia_best_model = model
+        return u
+
+    def test_auth_retries_on_failure(self) -> None:
+        """Auth failure enters retry loop; upload never called while auth keeps failing."""
         fl = self._mock_fl(auth_raises=True)
         mock_trainer = MagicMock()
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer):
-            _watch()
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration):
+            with pytest.raises(StopIteration):
+                _watch_dev(fl, mock_trainer)
         fl.upload_update.assert_not_called()
         mock_trainer.train_and_prepare_update.assert_not_called()
 
@@ -247,26 +255,23 @@ class TestWatch:
         fl.get_round_status.return_value = None
         mock_trainer = MagicMock()
 
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
-            with pytest.raises(SystemExit):
-                _watch()
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration):
+            with pytest.raises(StopIteration):
+                _watch_dev(fl, mock_trainer)
 
         mock_trainer.train_and_prepare_update.assert_not_called()
 
     def test_collecting_round_triggers_training_and_upload(self) -> None:
         fl = self._mock_fl()
         fl.get_round_status.return_value = {"round_id": 1, "status": "collecting"}
-        mock_update = MagicMock()
+        mock_update = self._mock_update()
         mock_trainer = MagicMock()
         mock_trainer.train_and_prepare_update.return_value = mock_update
 
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
-            with pytest.raises(SystemExit):
-                _watch()
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration), \
+             patch("client.engine.scheduler.get_state", return_value=MagicMock(run_count=0)):
+            with pytest.raises(StopIteration):
+                _watch_dev(fl, mock_trainer)
 
         mock_trainer.train_and_prepare_update.assert_called_once_with(1)
         fl.upload_update.assert_called_once_with(mock_update)
@@ -277,11 +282,9 @@ class TestWatch:
         fl.get_round_status.return_value = {"round_id": 0, "status": "collecting"}
         mock_trainer = MagicMock()
 
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
-            with pytest.raises(SystemExit):
-                _watch()
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration):
+            with pytest.raises(StopIteration):
+                _watch_dev(fl, mock_trainer)
 
         mock_trainer.train_and_prepare_update.assert_not_called()
 
@@ -291,11 +294,9 @@ class TestWatch:
         fl.get_round_status.return_value = {"round_id": 1, "status": "complete"}
         mock_trainer = MagicMock()
 
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
-            with pytest.raises(SystemExit):
-                _watch()
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration):
+            with pytest.raises(StopIteration):
+                _watch_dev(fl, mock_trainer)
 
         mock_trainer.train_and_prepare_update.assert_not_called()
 
@@ -304,50 +305,303 @@ class TestWatch:
         fl = self._mock_fl()
         fl.get_round_status.return_value = {"round_id": 1, "status": "collecting"}
         mock_trainer = MagicMock()
-        mock_trainer.train_and_prepare_update.return_value = MagicMock()
-        sleep_calls = {"count": 0}
+        mock_trainer.train_and_prepare_update.return_value = self._mock_update()
+        sleep_count = {"n": 0}
 
-        def sleep_side_effect(t):
-            sleep_calls["count"] += 1
-            if sleep_calls["count"] >= 2:
-                raise SystemExit(0)
+        def sleep_side(t: float) -> None:
+            sleep_count["n"] += 1
+            if sleep_count["n"] >= 2:
+                raise StopIteration
 
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.time.sleep", side_effect=sleep_side_effect):
-            with pytest.raises(SystemExit):
-                _watch()
+        with patch("client.engine.scheduler.time.sleep", side_effect=sleep_side), \
+             patch("client.engine.scheduler.get_state", return_value=MagicMock(run_count=0)):
+            with pytest.raises(StopIteration):
+                _watch_dev(fl, mock_trainer)
 
         # Trained exactly once despite two polls returning round_id=1
         assert mock_trainer.train_and_prepare_update.call_count == 1
 
-    def test_exception_in_loop_caught_warning_logged(self) -> None:
-        """Network error inside loop is caught; warning logged; loop continues."""
+    def test_poll_error_sets_phase_error_and_logs_warning(self) -> None:
+        """Network error inside loop is caught; error phase set; warning logged."""
         fl = self._mock_fl()
         fl.get_round_status.side_effect = ConnectionError("unreachable")
 
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer"), \
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration), \
              patch("client.engine.scheduler.log") as mock_log, \
-             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
-            with pytest.raises(SystemExit):
-                _watch()
+             patch("client.engine.scheduler.update_state") as mock_update_state:
+            with pytest.raises(StopIteration):
+                _watch_dev(fl, MagicMock())
 
         mock_log.warning.assert_called_once_with(
             "scheduler_poll_error", error="unreachable"
         )
+        mock_update_state.assert_any_call(phase="error")
+
+    def test_done_state_carries_run_count_and_metrics(self) -> None:
+        fl = self._mock_fl()
+        fl.get_round_status.return_value = {"round_id": 2, "status": "collecting"}
+        mock_update = self._mock_update(flux_ratio=0.75, amin=0.03, model="cake")
+        mock_trainer = MagicMock()
+        mock_trainer.train_and_prepare_update.return_value = mock_update
+        calls: list[dict] = []
+
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration), \
+             patch("client.engine.scheduler.update_state",
+                   side_effect=lambda **kw: calls.append(kw)), \
+             patch("client.engine.scheduler.get_state",
+                   return_value=MagicMock(run_count=0)):
+            with pytest.raises(StopIteration):
+                _watch_dev(fl, mock_trainer)
+
+        done_call = next((c for c in calls if c.get("phase") == "done"), None)
+        assert done_call is not None
+        assert done_call["run_count"] == 1
+        assert done_call["last_round_completed"] == 2
+        assert done_call["last_flux_ratio"] == pytest.approx(0.75)
+        assert done_call["last_amin"] == pytest.approx(0.03)
+        assert done_call["last_hermia_model"] == "cake"
+
+    def test_phase_transitions_training_uploading_done_in_order(self) -> None:
+        fl = self._mock_fl()
+        fl.get_round_status.return_value = {"round_id": 1, "status": "collecting"}
+        mock_trainer = MagicMock()
+        mock_trainer.train_and_prepare_update.return_value = self._mock_update()
+        calls: list[dict] = []
+
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration), \
+             patch("client.engine.scheduler.update_state",
+                   side_effect=lambda **kw: calls.append(kw)), \
+             patch("client.engine.scheduler.get_state",
+                   return_value=MagicMock(run_count=0)):
+            with pytest.raises(StopIteration):
+                _watch_dev(fl, mock_trainer)
+
+        phases = [c["phase"] for c in calls if "phase" in c]
+        assert "training" in phases
+        assert "uploading" in phases
+        assert "done" in phases
+        assert phases.index("training") < phases.index("uploading") < phases.index("done")
+
+
+# ── scheduler._watch_prod ─────────────────────────────────────────────────────
+
+class TestWatchProd:
+    """Tests for the prod-mode scheduler loop."""
+
+    def _mock_fl(self, auth_raises: bool = False) -> MagicMock:
+        fl = MagicMock()
+        if auth_raises:
+            fl.authenticate.side_effect = Exception("auth failed")
+        return fl
+
+    def _mock_prod_source(self, has_new: bool = False) -> MagicMock:
+        ps = MagicMock()
+        ps.has_new_data.return_value = has_new
+        return ps
+
+    def _mock_round(self, round_id: int = 1) -> MagicMock:
+        r = MagicMock()
+        r.round_id = round_id
+        return r
+
+    def _mock_update(
+        self, flux_ratio: float = 0.8, amin: float = 0.04, model: str = "combined_1a"
+    ) -> MagicMock:
+        u = MagicMock()
+        u.local_metrics = {"flux_ratio": flux_ratio, "amin_m2": amin}
+        u.hermia_best_model = model
+        return u
+
+    def test_auth_retries_on_failure(self) -> None:
+        """Auth failure enters retry loop; training never called while auth keeps failing."""
+        fl = self._mock_fl(auth_raises=True)
+        mock_trainer = MagicMock()
+        ps = self._mock_prod_source()
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration):
+            with pytest.raises(StopIteration):
+                _watch_prod(fl, mock_trainer, ps, 30)
+        mock_trainer.train_and_prepare_update.assert_not_called()
+
+    def test_no_new_data_skips_training(self) -> None:
+        fl = self._mock_fl()
+        mock_trainer = MagicMock()
+        ps = self._mock_prod_source(has_new=False)
+
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration):
+            with pytest.raises(StopIteration):
+                _watch_prod(fl, mock_trainer, ps, 30)
+
+        mock_trainer.train_and_prepare_update.assert_not_called()
+
+    def test_has_new_data_trains_and_uploads(self) -> None:
+        fl = self._mock_fl()
+        fl.get_current_round.return_value = self._mock_round(round_id=5)
+        ps = self._mock_prod_source(has_new=True)
+        mock_update = self._mock_update(flux_ratio=0.7, amin=0.02, model="intermediate")
+        mock_trainer = MagicMock()
+        mock_trainer.train_and_prepare_update.return_value = mock_update
+
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration), \
+             patch("client.engine.scheduler.get_state",
+                   return_value=MagicMock(run_count=0)):
+            with pytest.raises(StopIteration):
+                _watch_prod(fl, mock_trainer, ps, 30)
+
+        mock_trainer.train_and_prepare_update.assert_called_once_with(5)
+        fl.upload_update.assert_called_once_with(mock_update)
+
+    def test_no_new_data_error_silently_caught(self) -> None:
+        """NoNewDataError raised during training is caught without setting error state."""
+        from client.engine.data_source import NoNewDataError
+        fl = self._mock_fl()
+        fl.get_current_round.return_value = self._mock_round()
+        ps = self._mock_prod_source(has_new=True)
+        mock_trainer = MagicMock()
+        mock_trainer.train_and_prepare_update.side_effect = NoNewDataError("no data")
+        calls: list[dict] = []
+
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration), \
+             patch("client.engine.scheduler.update_state",
+                   side_effect=lambda **kw: calls.append(kw)):
+            with pytest.raises(StopIteration):
+                _watch_prod(fl, mock_trainer, ps, 30)
+
+        # NoNewDataError must NOT set error phase
+        assert not any(c.get("phase") == "error" for c in calls)
+
+    def test_generic_exception_sets_error_state_and_logs(self) -> None:
+        fl = self._mock_fl()
+        fl.get_current_round.return_value = self._mock_round()
+        ps = self._mock_prod_source(has_new=True)
+        mock_trainer = MagicMock()
+        mock_trainer.train_and_prepare_update.side_effect = RuntimeError("model exploded")
+        calls: list[dict] = []
+
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration), \
+             patch("client.engine.scheduler.update_state",
+                   side_effect=lambda **kw: calls.append(kw)), \
+             patch("client.engine.scheduler.log") as mock_log:
+            with pytest.raises(StopIteration):
+                _watch_prod(fl, mock_trainer, ps, 30)
+
+        assert any(c.get("phase") == "error" for c in calls)
+        mock_log.warning.assert_called_once_with(
+            "prod_poll_error", error="model exploded"
+        )
+
+    def test_done_state_carries_metrics_and_run_count(self) -> None:
+        fl = self._mock_fl()
+        fl.get_current_round.return_value = self._mock_round(round_id=3)
+        ps = self._mock_prod_source(has_new=True)
+        mock_update = self._mock_update(flux_ratio=0.65, amin=0.02, model="cake")
+        mock_trainer = MagicMock()
+        mock_trainer.train_and_prepare_update.return_value = mock_update
+        calls: list[dict] = []
+
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration), \
+             patch("client.engine.scheduler.update_state",
+                   side_effect=lambda **kw: calls.append(kw)), \
+             patch("client.engine.scheduler.get_state",
+                   return_value=MagicMock(run_count=1)):
+            with pytest.raises(StopIteration):
+                _watch_prod(fl, mock_trainer, ps, 30)
+
+        done_call = next((c for c in calls if c.get("phase") == "done"), None)
+        assert done_call is not None
+        assert done_call["run_count"] == 2
+        assert done_call["last_round_completed"] == 3
+        assert done_call["last_flux_ratio"] == pytest.approx(0.65)
+        assert done_call["last_amin"] == pytest.approx(0.02)
+        assert done_call["last_hermia_model"] == "cake"
 
 
 # ── scheduler.start_scheduler ─────────────────────────────────────────────────
 
 class TestStartScheduler:
-    def test_creates_named_daemon_thread(self) -> None:
-        with patch("client.engine.scheduler.threading.Thread") as mock_thread_cls:
-            start_scheduler()
-        mock_thread_cls.assert_called_once_with(
-            target=_watch, daemon=True, name="fl-scheduler"
+    """Tests for start_scheduler() — thread creation and lambda coverage."""
+
+    def _mock_settings(self) -> MagicMock:
+        s = MagicMock()
+        s.data_poll_seconds = 60
+        return s
+
+    def test_dev_mode_spawns_dev_thread(self) -> None:
+        from client.engine.data_source import DevDataSource, PHYSICS_DEFAULTS
+        ds = DevDataSource(PHYSICS_DEFAULTS)
+        mock_thread = MagicMock()
+        settings = self._mock_settings()
+
+        with patch("client.engine.scheduler.threading.Thread",
+                   return_value=mock_thread) as mock_cls, \
+             patch("client.engine.scheduler.FLClient"), \
+             patch("client.engine.scheduler.LocalTrainer"), \
+             patch("client.config.get_client_settings", return_value=settings):
+            start_scheduler(ds)
+
+        call_kwargs = mock_cls.call_args.kwargs
+        assert call_kwargs["name"] == "fl-scheduler-dev"
+        assert call_kwargs["daemon"] is True
+        mock_thread.start.assert_called_once()
+
+    def test_prod_mode_spawns_prod_thread(self, tmp_path) -> None:
+        from client.engine.data_source import ProdDataSource
+        ds = ProdDataSource(str(tmp_path))
+        mock_thread = MagicMock()
+        settings = self._mock_settings()
+
+        with patch("client.engine.scheduler.threading.Thread",
+                   return_value=mock_thread) as mock_cls, \
+             patch("client.engine.scheduler.FLClient"), \
+             patch("client.engine.scheduler.LocalTrainer"), \
+             patch("client.config.get_client_settings", return_value=settings):
+            start_scheduler(ds)
+
+        call_kwargs = mock_cls.call_args.kwargs
+        assert call_kwargs["name"] == "fl-scheduler-prod"
+        assert call_kwargs["daemon"] is True
+        mock_thread.start.assert_called_once()
+
+    def test_dev_lambda_body_calls_watch_dev(self) -> None:
+        """Cover the lambda body: lambda: _watch_dev(fl, trainer)."""
+        from client.engine.data_source import DevDataSource, PHYSICS_DEFAULTS
+        ds = DevDataSource(PHYSICS_DEFAULTS)
+        mock_thread = MagicMock()
+        settings = self._mock_settings()
+
+        with patch("client.engine.scheduler.threading.Thread",
+                   return_value=mock_thread) as mock_cls, \
+             patch("client.engine.scheduler.FLClient") as mock_fl_cls, \
+             patch("client.engine.scheduler.LocalTrainer") as mock_trainer_cls, \
+             patch("client.engine.scheduler._watch_dev") as mock_watch, \
+             patch("client.config.get_client_settings", return_value=settings):
+            start_scheduler(ds)
+            target = mock_cls.call_args.kwargs["target"]
+            target()
+
+        mock_watch.assert_called_once_with(
+            mock_fl_cls.return_value, mock_trainer_cls.return_value
         )
-        mock_thread_cls.return_value.start.assert_called_once()
+
+    def test_prod_lambda_body_calls_watch_prod(self, tmp_path) -> None:
+        """Cover the lambda body: lambda: _watch_prod(fl, trainer, data_source, poll_seconds)."""
+        from client.engine.data_source import ProdDataSource
+        ds = ProdDataSource(str(tmp_path))
+        mock_thread = MagicMock()
+        settings = self._mock_settings()
+
+        with patch("client.engine.scheduler.threading.Thread",
+                   return_value=mock_thread) as mock_cls, \
+             patch("client.engine.scheduler.FLClient") as mock_fl_cls, \
+             patch("client.engine.scheduler.LocalTrainer") as mock_trainer_cls, \
+             patch("client.engine.scheduler._watch_prod") as mock_watch, \
+             patch("client.config.get_client_settings", return_value=settings):
+            start_scheduler(ds)
+            target = mock_cls.call_args.kwargs["target"]
+            target()
+
+        mock_watch.assert_called_once_with(
+            mock_fl_cls.return_value, mock_trainer_cls.return_value, ds, 60
+        )
 
     def test_poll_seconds_constant(self) -> None:
         assert POLL_SECONDS == 15
@@ -364,6 +618,8 @@ class TestTrainingState:
             last_lrv=None, last_amin=None,
             last_flux_ratio=None, last_hermia_model=None,
             last_round_completed=0,
+            run_count=0,
+            last_run_at=None,
         )
 
     def test_initial_defaults(self) -> None:
@@ -376,6 +632,8 @@ class TestTrainingState:
         assert s.last_flux_ratio is None
         assert s.last_hermia_model is None
         assert s.last_round_completed == 0
+        assert s.run_count == 0
+        assert s.last_run_at is None
 
     def test_update_single_field(self) -> None:
         from client.engine.state import get_state, update_state
@@ -437,94 +695,3 @@ class TestTrainingState:
             update_state(nonexistent_field=99)
 
 
-# ── scheduler state updates ───────────────────────────────────────────────────
-
-class TestWatchStateUpdates:
-    """Verify _watch() calls update_state() at the correct phase transitions."""
-
-    def _mock_fl(self) -> MagicMock:
-        fl = MagicMock()
-        return fl
-
-    def _mock_update(self) -> MagicMock:
-        u = MagicMock()
-        u.local_metrics = {"flux_ratio": 0.88, "amin_m2": 0.04}
-        u.hermia_best_model = "combined_1a"
-        return u
-
-    def test_training_phase_set_before_train_call(self) -> None:
-        fl = self._mock_fl()
-        fl.get_round_status.return_value = {"round_id": 1, "status": "collecting"}
-        mock_trainer = MagicMock()
-        mock_trainer.train_and_prepare_update.return_value = self._mock_update()
-        calls: list[dict] = []
-
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.update_state", side_effect=lambda **kw: calls.append(kw)), \
-             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
-            with pytest.raises(SystemExit):
-                _watch()
-
-        phases = [c["phase"] for c in calls if "phase" in c]
-        assert "training" in phases
-        training_idx = phases.index("training")
-        # training phase must appear before done
-        assert "done" in phases
-        done_idx = phases.index("done")
-        assert training_idx < done_idx
-
-    def test_done_phase_carries_metrics(self) -> None:
-        fl = self._mock_fl()
-        fl.get_round_status.return_value = {"round_id": 2, "status": "collecting"}
-        mock_trainer = MagicMock()
-        update = self._mock_update()
-        mock_trainer.train_and_prepare_update.return_value = update
-        calls: list[dict] = []
-
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.update_state", side_effect=lambda **kw: calls.append(kw)), \
-             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
-            with pytest.raises(SystemExit):
-                _watch()
-
-        done_call = next((c for c in calls if c.get("phase") == "done"), None)
-        assert done_call is not None
-        assert done_call.get("last_hermia_model") == "combined_1a"
-        assert done_call.get("last_flux_ratio") == pytest.approx(0.88)
-        assert done_call.get("last_amin") == pytest.approx(0.04)
-        assert done_call.get("last_round_completed") == 2
-
-    def test_error_phase_set_on_exception(self) -> None:
-        fl = self._mock_fl()
-        fl.get_round_status.side_effect = ConnectionError("unreachable")
-        calls: list[dict] = []
-
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer"), \
-             patch("client.engine.scheduler.update_state", side_effect=lambda **kw: calls.append(kw)), \
-             patch("client.engine.scheduler.log"), \
-             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
-            with pytest.raises(SystemExit):
-                _watch()
-
-        assert any(c.get("phase") == "error" for c in calls)
-
-    def test_uploading_phase_set_before_upload(self) -> None:
-        fl = self._mock_fl()
-        fl.get_round_status.return_value = {"round_id": 1, "status": "collecting"}
-        mock_trainer = MagicMock()
-        mock_trainer.train_and_prepare_update.return_value = self._mock_update()
-        calls: list[dict] = []
-
-        with patch("client.engine.scheduler.FLClient", return_value=fl), \
-             patch("client.engine.scheduler.LocalTrainer", return_value=mock_trainer), \
-             patch("client.engine.scheduler.update_state", side_effect=lambda **kw: calls.append(kw)), \
-             patch("client.engine.scheduler.time.sleep", side_effect=SystemExit(0)):
-            with pytest.raises(SystemExit):
-                _watch()
-
-        phases = [c["phase"] for c in calls if "phase" in c]
-        assert "uploading" in phases
-        assert phases.index("uploading") < phases.index("done")

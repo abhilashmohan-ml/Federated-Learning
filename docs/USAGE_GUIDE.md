@@ -55,12 +55,8 @@ cp .env.example .env
 Open `.env` and set at minimum:
 
 ```
-SERVER_SECRET_KEY=<64-character random string>
-SITE_1_SECRET=<random string>
-SITE_2_SECRET=<random string>
-SITE_3_SECRET=<random string>
-SITE_4_SECRET=<random string>
-SITE_5_SECRET=<random string>
+SERVER_SECRET_KEY=<64-character random string>    # signs JWTs; also used as X-Admin-Key for PUT /settings
+REGISTERED_SITES=site_1:<secret1>,site_2:<secret2>,site_3:<secret3>,site_4:<secret4>,site_5:<secret5>
 ```
 
 Generate secure values with:
@@ -69,13 +65,13 @@ Generate secure values with:
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Run the above once for `SERVER_SECRET_KEY` and once for each `SITE_N_SECRET`.
+Run the above once for `SERVER_SECRET_KEY` and once for each site secret in `REGISTERED_SITES`.
 
 Then:
 
 ```bash
-# Generate synthetic filtration data for all 5 sites
-python scripts/generate_synthetic_data.py
+# (Dev mode only) Generate synthetic filtration data — not required if DEV_MODE=true
+# python scripts/generate_synthetic_data.py
 
 # Build and start all containers
 docker compose up --build
@@ -196,21 +192,29 @@ SITE_ID=site_2 FLET_CLIENT_PORT=8552 python client/main.py
 
 On Windows, two PowerShell scripts replace the 7-terminal manual process above.
 
-#### Start everything: `start_all_server_clients_dev.ps1`
+#### Start everything (dev mode): `start_all_server_clients_dev.ps1`
 
 ```powershell
 .\start_all_server_clients_dev.ps1
 ```
 
-Frees all project ports, then opens **7 colour-coded PowerShell windows** (one per component) with the venv activated automatically in each:
+Frees all project ports (8000, 8550-8555, 9001-9005), then opens **7 colour-coded PowerShell windows** (one per component) with the venv activated automatically in each. Sets `DEV_MODE=true` and per-site physics params so each site generates different synthetic data:
 
 | Window | Colour | What runs |
 |---|---|---|
-| `Server` | Dark Blue | FastAPI server on :8000 |
+| `Server` | Dark Blue | FastAPI server on :8000 (DEV_MODE=true) |
 | `Server GUI` | Dark Cyan | Flet dashboard on :8550 |
-| `Site 1`–`Site 5` | Dark Green | FL clients on :8551–:8555 |
+| `Site 1`–`Site 5` | Dark Green | FL clients on :8551–:8555, status :9001–:9005 |
 
-All 7 stay open so you can watch their logs. Run from the repo root.
+All 7 stay open so you can watch their logs. Run from the repo root. No CSV files needed.
+
+#### Start everything (production mode): `start_all_server_clients.ps1`
+
+```powershell
+.\start_all_server_clients.ps1
+```
+
+Same structure as the dev launcher but without `DEV_MODE=true`. Sites read real filtration CSV files from their configured `LOCAL_DATA_PATH`. Use for staging/production.
 
 #### Stop and clean up: `post_dev_cleanup.ps1`
 
@@ -240,22 +244,31 @@ All values are read from environment variables (or `.env`). Never hardcode secre
 | `CORS_ORIGINS` | `[]` | JSON array of allowed origins. `[]` allows all (dev only). |
 | `SSL_KEYFILE` | unset | Path to TLS private key (optional). |
 | `SSL_CERTFILE` | unset | Path to TLS certificate (optional). |
-| `SITE_1_SECRET` … `SITE_5_SECRET` | — | Per-site shared secrets. **Must be set.** Hashed with bcrypt on first `init_db.py` run. |
+| `REGISTERED_SITES` | — | Comma-separated `site_id:secret` pairs (e.g. `site_1:abc,site_2:def`). Parsed by `init_db.py`. |
+| `SITE_STATUS_URLS` | `""` | Comma-separated `site_id:http://host:port` for SitePoller heartbeat. |
+| `SITE_POLL_SECRET` | `""` | Bearer token sent by SitePoller when polling `/site/status`. Must match each site's `SITE_SECRET`. |
+| `HEARTBEAT_SECONDS` | `30` | SitePoller interval (overridden by `server_settings` DB table). |
 
 ### Client variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `SITE_ID` | `site_1` | Which site this client represents (`site_1` … `site_5`). |
+| `SITE_ID` | `site_1` | Which site this client represents (any unique string). |
 | `SERVER_URL` | `http://server:8000` | URL of the FL server. Use `http://localhost:8000` for local dev. |
-| `SITE_SECRET` | — | Must match the server's `SITE_N_SECRET` for this site. |
-| `LOCAL_DATA_PATH` | `/data/filtration.csv` | Path to this site's filtration CSV file. |
+| `SITE_SECRET` | `""` | Site authentication secret (matches server's `REGISTERED_SITES` entry); also used as bearer token for `/site/status`. |
+| `LOCAL_DATA_PATH` | `/data/filtration.csv` | Base path for filtration CSV files (prod mode). |
 | `FLET_CLIENT_PORT` | `8551` | Flet client dashboard port. |
+| `CLIENT_STATUS_PORT` | `9001` | Port for `/site/status` FastAPI endpoint (polled by SitePoller). |
 | `DP_NOISE_SIGMA` | `0.01` | Standard deviation of Gaussian DP noise added to model deltas. Higher = stronger privacy, lower accuracy. |
 | `VERIFY_SSL` | `true` | Set `false` when using self-signed development certificates. |
 | `CONNECT_TIMEOUT` | `10` | HTTP connection timeout in seconds. |
 | `REQUEST_TIMEOUT` | `60` | HTTP request timeout in seconds. |
 | `RETRY_ATTEMPTS` | `3` | Number of retries on transient network errors (exponential backoff). |
+| `DEV_MODE` | `false` | Set `true` to use synthetic data (DevDataSource) instead of CSV files. |
+| `DEV_J0` | `150.0` | Synthetic initial flux (LMH) — only used when `DEV_MODE=true`. |
+| `DEV_K1` | `0.015` | Combined 1-A k1 parameter — only used when `DEV_MODE=true`. |
+| `DEV_K2` | `0.002` | Combined 1-A k2 parameter — only used when `DEV_MODE=true`. |
+| `DATA_POLL_SECONDS` | `60` | How often to poll the data directory for new CSVs (prod mode). |
 
 ### Shared FL hyperparameters
 
@@ -331,17 +344,25 @@ Open http://localhost:8550 in a browser.
 
 ### Dashboard page
 
-Shows all 5 sites in real time with their current status:
+Shows all registered sites in real time with their current status. Each site card displays:
 
-| Status | Meaning |
+| Field | Description |
 |---|---|
-| IDLE | Site connected, waiting for a round to start |
-| TRAINING | Site is running local model fitting |
-| UPLOADING | Site is sending its model update |
-| DONE | Site submitted its update for the current round |
-| ERROR | Site encountered a training or network error |
+| Status (IDLE/TRAINING/UPLOADING/DONE/ERROR) | Current FL training phase |
+| Runs: N | Total completed local training runs polled from site's `/site/status` |
+| Last: HH:MM (or DD Mon) | Timestamp of last run (time if today, date if earlier) |
 
 The round progress bar shows how many rounds have completed out of the configured total.
+
+### Settings page
+
+Controls aggregation policy at runtime (no server restart needed):
+
+- **Quorum mode**: aggregate when N distinct sites have submitted updates (default: 3)
+- **Time Window mode**: aggregate when a configured time has elapsed since the last update
+- **Heartbeat interval**: how often SitePoller polls each site's `/site/status` endpoint
+
+Changes are applied live and persisted to the `server_settings` database table. The `PUT /settings` API requires the `X-Admin-Key: <SERVER_SECRET_KEY>` header.
 
 ### Site Monitor page
 
@@ -486,7 +507,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Re-run `init_db.py` after changing `SITE_N_SECRET` values to re-hash them.
+Re-run `init_db.py` after changing secrets in `REGISTERED_SITES` to re-hash them.
 
 ---
 

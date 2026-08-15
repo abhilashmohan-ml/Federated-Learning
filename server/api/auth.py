@@ -58,10 +58,11 @@ PYTHON CONCEPT: async/await
 """
 from __future__ import annotations
 
+import hmac
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt                  # python-jose: JWT encode/decode
 import bcrypt as _bcrypt                         # bcrypt password hashing
@@ -74,6 +75,11 @@ from server.db.models import RevokedToken, SiteRegistry
 from shared.schemas.auth import RefreshRequest, TokenRequest, TokenResponse
 
 router = APIRouter()
+
+# Pre-computed dummy hash used to consume constant bcrypt time when a site_id
+# is not found, so response latency does not reveal whether the site exists.
+_DUMMY_HASH: str = _bcrypt.hashpw(b"__dummy__", _bcrypt.gensalt()).decode()
+
 
 def _verify_secret(plaintext: str, hashed: str) -> bool:
     return _bcrypt.checkpw(plaintext.encode(), hashed.encode())
@@ -122,6 +128,33 @@ def _make_token(sub: str, role: str, expires: timedelta, key: str) -> tuple[str,
         algorithm=ALGORITHM,
     )
     return token, jti
+
+
+async def require_admin_token(
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    s: ServerSettings = Depends(get_settings),
+) -> None:
+    """
+    FastAPI dependency — verify that the request carries a valid X-Admin-Key header.
+
+    Only admin/server processes that know the server's secret_key may call
+    endpoints guarded by this dependency.  Regular site client JWTs are
+    explicitly insufficient — this enforces a separate privilege boundary.
+
+    Parameters
+    ----------
+    x_admin_key : str | None — value of the ``X-Admin-Key`` request header
+    s           : ServerSettings — for the ``secret_key`` comparison
+
+    Raises
+    ------
+    HTTPException 403 — if the header is absent or does not match ``secret_key``
+    """
+    if x_admin_key is None or not hmac.compare_digest(x_admin_key, s.secret_key):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
 
 
 async def get_current_site(
@@ -202,9 +235,11 @@ async def issue_token(
     )
     site = result.scalar_one_or_none()   # returns the row or None if not found
 
-    # Timing-safe check: verify even if site is None (to prevent timing attacks
-    # that reveal whether a site_id exists by measuring response time)
-    if site is None or not _verify_secret(req.site_secret, site.secret_hash):
+    # Always call bcrypt regardless of whether the site exists so that response
+    # latency does not reveal whether the site_id is registered (timing-safe).
+    check_hash = site.secret_hash if site is not None else _DUMMY_HASH
+    secret_ok = _verify_secret(req.site_secret, check_hash)
+    if site is None or not secret_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad credentials"
         )
@@ -256,25 +291,31 @@ async def refresh_token(
         )
 
     jti: str | None = payload.get("jti")
-    if jti:
-        # Check revocation: was this token already used or explicitly revoked?
-        existing = await db.execute(
-            select(RevokedToken).where(RevokedToken.jti == jti)
+    if not jti:
+        # All server-issued refresh tokens have a jti.  A token without one is
+        # either tampered or from a different issuer — reject it.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
         )
-        if existing.scalar_one_or_none() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked"
-            )
 
-        # Revoke this refresh token now (single-use pattern)
-        exp_ts: int = payload.get("exp", 0)
-        db.add(RevokedToken(
-            jti=jti,
-            site_id=payload["sub"],
-            # Convert Unix epoch int to UTC datetime for the DB column
-            expires_at=datetime.fromtimestamp(exp_ts, tz=timezone.utc),
-        ))
-        await db.commit()   # persist the revocation before issuing new tokens
+    # Check revocation: was this token already used or explicitly revoked?
+    existing = await db.execute(
+        select(RevokedToken).where(RevokedToken.jti == jti)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked"
+        )
+
+    # Revoke this refresh token now (single-use pattern)
+    exp_ts: int = payload.get("exp", 0)
+    db.add(RevokedToken(
+        jti=jti,
+        site_id=payload["sub"],
+        # Convert Unix epoch int to UTC datetime for the DB column
+        expires_at=datetime.fromtimestamp(exp_ts, tz=timezone.utc),
+    ))
+    await db.commit()   # persist the revocation before issuing new tokens
 
     site_id: str = payload["sub"]
     new_access, _  = _make_token(

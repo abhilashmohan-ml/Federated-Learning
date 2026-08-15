@@ -3,7 +3,7 @@
 # Run from PowerShell: .\post_dev_cleanup.ps1
 
 # ── 1. Kill processes on project ports ───────────────────────────────────────
-$ports = @(8000, 8550, 8551, 8552, 8553, 8554, 8555)
+$ports = @(8000, 8550, 8551, 8552, 8553, 8554, 8555, 9001, 9002, 9003, 9004, 9005)
 
 Write-Host "Freeing ports..." -ForegroundColor Yellow
 

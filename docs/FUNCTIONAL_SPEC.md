@@ -1,9 +1,9 @@
 # Functional Specification
 ## Viral Filtration Federated Learning Platform
 
-**Version:** 1.0  
-**Date:** 2026-07-04  
-**Status:** Implemented (v0.1.0)
+**Version:** 2.0  
+**Date:** 2026-08-15  
+**Status:** Implemented (v0.2.0 — data-driven FL branch)
 
 ---
 
@@ -100,6 +100,36 @@ The system provides:
 | FR-30 | FL clients SHALL retry failed HTTP requests with exponential backoff (configurable attempts) |
 | FR-31 | FL clients SHALL support SSL verification toggle for development with self-signed certificates |
 
+### 4.6 Data Sources
+
+| ID | Requirement |
+|----|-------------|
+| FR-32 | In dev mode (`DEV_MODE=true`), the client SHALL generate synthetic Combined 1-A flux data on each FL run rather than reading a static CSV |
+| FR-33 | Dev-mode physics parameters (J0, k1, k2, noise, tmp_base) SHALL be configurable per-site via environment variables to create inter-site variance |
+| FR-34 | In production mode, the client SHALL monitor a data directory for new `filtration_*.csv` files and trigger training only on unprocessed files |
+| FR-35 | ProdDataSource SHALL track processed filenames in a `.processed.json` sidecar written atomically — re-run after crash SHALL NOT reprocess already-trained files |
+| FR-36 | The client engine SHALL accept a `DataSource` abstraction; swapping Dev/Prod mode SHALL require no changes to `LocalTrainer` or `Scheduler` |
+
+### 4.7 Aggregation Policy and Runtime Configuration
+
+| ID | Requirement |
+|----|-------------|
+| FR-37 | The server SHALL support a pluggable aggregation policy: `QuorumPolicy` (N distinct sites) or `TimeWindowPolicy` (elapsed seconds) |
+| FR-38 | The active aggregation policy SHALL be changeable at runtime without restarting the server via `PUT /settings` |
+| FR-39 | Settings SHALL be persisted to the `server_settings` database table and restored on server restart |
+| FR-40 | `PUT /settings` SHALL require an `X-Admin-Key` header matching `SERVER_SECRET_KEY`; requests without it SHALL be rejected with HTTP 403 |
+| FR-41 | Numeric settings keys SHALL be validated before storage; invalid values SHALL return HTTP 422 |
+
+### 4.8 Site Monitoring and Run Tracking
+
+| ID | Requirement |
+|----|-------------|
+| FR-42 | Each site client SHALL expose a `GET /site/status` endpoint returning `site_id`, `run_count`, `last_run_at`, `phase` |
+| FR-43 | The `/site/status` endpoint SHALL require `Authorization: Bearer` when `SITE_SECRET` is non-empty |
+| FR-44 | The server SHALL periodically poll each configured site's `/site/status` endpoint and update run count and last-run timestamp |
+| FR-45 | The server dashboard SHALL display `run_count` and `last_run_at` for each site; `last_run_at` SHALL show `HH:MM` for today's date and `DD Mon` for earlier dates |
+| FR-46 | Site registration SHALL be dynamic — any site_id string is valid; no hardcoded `site_1..site_5` enumeration in production Python code |
+
 ---
 
 ## 5. Data Privacy Requirements
@@ -129,8 +159,9 @@ The system provides:
 
 ## 7. Constraints and Assumptions
 
-- 5 fixed manufacturing sites (site_1 … site_5); expanding beyond 5 requires code changes in the round manager initialisation
-- Each site has a local filtration CSV at a configurable path; format is time/flux/TMP columns
+- Site identifiers are arbitrary strings; no hardcoded `site_1..site_5` enumeration in production code. Sites are registered via `REGISTERED_SITES` env var at init time.
+- In dev mode, each site generates synthetic data; in prod mode, each site monitors a directory for new `filtration_*.csv` files. Both paths share the same `DataSource` protocol.
 - The PINN global model weights are held in memory on the server — no persistence across server restarts in the current implementation
 - LRV_required defaults to 4.0 log; adjustable in Manabe model calls
 - Differential privacy guarantees follow the Gaussian mechanism; the full Abadi et al. DP-SGD guarantee is not yet enforced (moment accountant not implemented)
+- Aggregation policy defaults to `QuorumPolicy(min_sites=3)` but persists to DB and is restored on restart

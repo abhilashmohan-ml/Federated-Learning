@@ -498,8 +498,8 @@ class TestRefreshToken:
         assert r.status_code == 401
         assert "revoked" in r.json()["detail"].lower()
 
-    def test_token_without_jti_skips_revocation_check(self) -> None:
-        """Covers the `if jti:` False branch — token with no jti is accepted."""
+    def test_token_without_jti_returns_401(self) -> None:
+        """All server-issued tokens carry a jti. A token missing jti is rejected."""
         async def _run():
             session_local = await _make_session()
             s = get_settings()
@@ -510,7 +510,7 @@ class TestRefreshToken:
                     "role": "client",
                     "iat": now,
                     "exp": now + timedelta(days=7),
-                    # Note: deliberately no "jti" field
+                    # deliberately no "jti" field — should be rejected
                 },
                 s.secret_key,
                 algorithm=ALGORITHM,
@@ -527,8 +527,8 @@ class TestRefreshToken:
                 app.dependency_overrides.clear()
 
         r = asyncio.run(_run())
-        assert r.status_code == 200
-        assert "access_token" in r.json()
+        assert r.status_code == 401
+        assert "invalid" in r.json()["detail"].lower()
 
 
 # ══ Auth — POST /auth/revoke ═════════════════════════════════════════════════════

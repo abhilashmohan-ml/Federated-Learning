@@ -114,6 +114,16 @@ class ServerSettings(BaseSettings):
     access_token_expire_minutes: int = 15    # short-lived: 15 minutes
     refresh_token_expire_days: int   = 7     # long-lived: 7 days
 
+    # ── Site heartbeat poller ────────────────────────────────────────────────
+    heartbeat_seconds: int = 30
+    # Comma-separated "site_id:base_url" pairs, e.g.:
+    #   SITE_STATUS_URLS=site_a:http://localhost:9001,site_b:http://localhost:9002
+    site_status_urls: str = ""
+    # Bearer secret the server uses when polling /site/status endpoints.
+    # Must match SITE_SECRET on each client container.  Leave empty to poll
+    # without authentication (dev / no-secret environments only).
+    site_poll_secret: str = ""
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: object) -> list[str]:

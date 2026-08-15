@@ -209,3 +209,18 @@ class RevokedToken(Base):
 
     # Index on jti: makes the SELECT WHERE jti=? query very fast
     __table_args__ = (Index("ix_revoked_tokens_jti", "jti"),)
+
+
+class ServerSetting(Base):
+    """
+    Key-value store for server-side runtime configuration.
+
+    Persisted to DB so settings survive server restarts. Default values
+    are defined in SettingsStore.DEFAULTS and returned when a key has no
+    DB row. Adding new settings requires no schema change — just add a new
+    key/default pair to DEFAULTS.
+    """
+    __tablename__ = "server_settings"
+
+    key:   Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(String(500), nullable=False)

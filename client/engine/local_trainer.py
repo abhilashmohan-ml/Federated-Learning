@@ -56,7 +56,7 @@ from typing import Dict, List
 import numpy as np
 
 from client.config              import get_client_settings
-from client.engine.data_loader  import load_filtration_csv
+from client.engine.data_source  import DataSource
 from shared.models.hermia       import fit_all_models, compute_flux_ratio, compute_amin
 from shared.crypto.noise        import add_gaussian_noise
 from shared.schemas.federation  import ModelUpdate
@@ -76,9 +76,10 @@ class LocalTrainer:
     (read-only) and the local variables of each method call.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, data_source: DataSource) -> None:
         # Get the (cached) settings object — same object shared across all modules
         self.settings = get_client_settings()
+        self._data_source = data_source
 
     def train_and_prepare_update(self, round_id: int) -> ModelUpdate:
         """
@@ -106,7 +107,7 @@ class LocalTrainer:
             dp_noise_sigma: sigma used for DP noise (for audit log)
         """
         # ── Step 1: Load local data (stays on-site) ────────────────────────────
-        time, flux, tmp = load_filtration_csv(self.settings.local_data_path)
+        time, flux, tmp = self._data_source.get_data()
 
         # ── Step 2: Fit all 5 Hermia models ────────────────────────────────────
         # Each model is fit to the (time, flux) data independently.
@@ -114,12 +115,13 @@ class LocalTrainer:
         results = fit_all_models(time, flux)
 
         # ── Step 3: Select best model by AIC ────────────────────────────────────
-        # `r.selected` is True for exactly one model (the one with the lowest AIC).
-        # If somehow no model was selected (e.g., all fitters failed), fall back
-        # to the first available result.
+        if not results:
+            raise RuntimeError(
+                f"All Hermia models failed to converge for site {self.settings.site_id}"
+            )
         best = next(
-            (r for r in results.values() if r.selected),  # first selected model
-            list(results.values())[0],                     # fallback: first model
+            (r for r in results.values() if r.selected),
+            list(results.values())[0],
         )
 
         # ── Step 4: Compute derived process metrics ─────────────────────────────
