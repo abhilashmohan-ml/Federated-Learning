@@ -161,8 +161,8 @@ class TestLocalTrainer:
 
         assert update.hermia_best_model == "standard"
 
-    def test_empty_hermia_results_raises_index_error(self) -> None:
-        """fit_all_models returning {} → list({})[0] raises IndexError (documented behavior)."""
+    def test_empty_hermia_results_raises_runtime_error(self) -> None:
+        """fit_all_models returning {} → explicit RuntimeError with descriptive message."""
         with patch("client.engine.local_trainer.get_client_settings",
                    return_value=_mock_client_settings()), \
              patch("client.engine.local_trainer.fit_all_models", return_value={}), \
@@ -171,7 +171,7 @@ class TestLocalTrainer:
              patch("client.engine.local_trainer.add_gaussian_noise",
                    side_effect=lambda w, sigma: w):
             from client.engine.local_trainer import LocalTrainer
-            with pytest.raises(IndexError):
+            with pytest.raises(RuntimeError, match="All Hermia models failed"):
                 LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(round_id=1)
 
     def test_all_five_local_metric_keys_present(self) -> None:
@@ -239,10 +239,13 @@ class TestWatchDev:
         u.hermia_best_model = model
         return u
 
-    def test_auth_failure_returns_early(self) -> None:
+    def test_auth_retries_on_failure(self) -> None:
+        """Auth failure enters retry loop; upload never called while auth keeps failing."""
         fl = self._mock_fl(auth_raises=True)
         mock_trainer = MagicMock()
-        _watch_dev(fl, mock_trainer)
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration):
+            with pytest.raises(StopIteration):
+                _watch_dev(fl, mock_trainer)
         fl.upload_update.assert_not_called()
         mock_trainer.train_and_prepare_update.assert_not_called()
 
@@ -409,11 +412,14 @@ class TestWatchProd:
         u.hermia_best_model = model
         return u
 
-    def test_auth_failure_returns_early(self) -> None:
+    def test_auth_retries_on_failure(self) -> None:
+        """Auth failure enters retry loop; training never called while auth keeps failing."""
         fl = self._mock_fl(auth_raises=True)
         mock_trainer = MagicMock()
         ps = self._mock_prod_source()
-        _watch_prod(fl, mock_trainer, ps, 30)
+        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration):
+            with pytest.raises(StopIteration):
+                _watch_prod(fl, mock_trainer, ps, 30)
         mock_trainer.train_and_prepare_update.assert_not_called()
 
     def test_no_new_data_skips_training(self) -> None:

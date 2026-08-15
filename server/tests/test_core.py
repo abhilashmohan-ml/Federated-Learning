@@ -271,6 +271,50 @@ class TestRoundManager:
 
     # ── _aggregate ─────────────────────────────────────────────────────────────
 
+    def test_receive_duplicate_update_ignored(self) -> None:
+        """Second update from same site in same round is silently dropped."""
+        async def _run():
+            rm = self._make_rm(min_sites=10)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            await rm.receive_update(_make_update("site_1", round_id=r.round_id))
+            n_after_first = len(rm._updates[r.round_id])
+            await rm.receive_update(_make_update("site_1", round_id=r.round_id))
+            n_after_second = len(rm._updates[r.round_id])
+            return n_after_first, n_after_second
+        n1, n2 = asyncio.run(_run())
+        assert n1 == 1
+        assert n2 == 1  # second duplicate was ignored
+
+    def test_update_buffer_cleared_after_successful_aggregation(self) -> None:
+        """After aggregation succeeds, _updates[round_id] is removed to free memory."""
+        async def _run():
+            rm = self._make_rm(min_sites=1)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            await rm.receive_update(
+                _make_update("site_1", round_id=r.round_id, layers={"p": [1.0]})
+            )
+            return r.round_id in rm._updates
+        buffer_present = asyncio.run(_run())
+        assert not buffer_present  # buffer freed on success
+
+    def test_update_buffer_cleared_after_failed_aggregation(self) -> None:
+        """After aggregation exception, _updates[round_id] is still freed."""
+        async def _run():
+            rm = self._make_rm()
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            rm._updates[r.round_id].append(
+                _make_update("site_1", round_id=r.round_id, layers={"p": [1.0]})
+            )
+            with patch.object(rm._aggregator, "aggregate",
+                              side_effect=RuntimeError("boom")):
+                await rm._aggregate(r.round_id)
+            return r.round_id in rm._updates
+        buffer_present = asyncio.run(_run())
+        assert not buffer_present  # buffer freed even on failure
+
     def test_aggregate_idempotent_non_collecting(self) -> None:
         async def _run():
             rm = self._make_rm()

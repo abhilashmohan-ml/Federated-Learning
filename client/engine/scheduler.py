@@ -19,11 +19,13 @@ POLL_SECONDS = 15   # dev mode: how often to check server for new round
 
 def _watch_dev(fl: FLClient, trainer: LocalTrainer) -> None:
     """Dev mode: poll server for server-initiated rounds, train with fresh simulated data."""
-    try:
-        fl.authenticate()
-    except Exception as exc:
-        log.error("auth_failed_on_start", error=str(exc))
-        return
+    while True:
+        try:
+            fl.authenticate()
+            break
+        except Exception as exc:
+            log.warning("auth_retry", error=str(exc))
+            time.sleep(POLL_SECONDS)
 
     last_seen_round = 0
 
@@ -69,11 +71,13 @@ def _watch_prod(
     poll_seconds: int,
 ) -> None:
     """Prod mode: poll data directory; push update to server when new CSVs arrive."""
-    try:
-        fl.authenticate()
-    except Exception as exc:
-        log.error("auth_failed_on_start", error=str(exc))
-        return
+    while True:
+        try:
+            fl.authenticate()
+            break
+        except Exception as exc:
+            log.warning("auth_retry", error=str(exc))
+            time.sleep(poll_seconds)
 
     while True:
         try:

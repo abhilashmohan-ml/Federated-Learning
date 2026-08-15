@@ -118,6 +118,12 @@ app.include_router(settings_api.router,  prefix="/settings",   tags=["settings"]
 @app.on_event("startup")  # type: ignore[attr-defined]
 async def _on_startup() -> None:
     """Load persisted policy config and start the site heartbeat poller."""
+    if settings.secret_key == "CHANGE_ME":
+        log.critical(
+            "insecure_default_secret_key",
+            note="SERVER_SECRET_KEY is still 'CHANGE_ME' — JWTs can be forged by anyone. "
+                 "Set SERVER_SECRET_KEY to a strong random secret before production use.",
+        )
     try:
         async with AsyncSessionLocal() as db:
             config = await SettingsStore().load(db)

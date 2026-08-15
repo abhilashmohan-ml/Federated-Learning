@@ -213,6 +213,29 @@ class TestPutSettings:
         r = asyncio.run(_run())
         assert r.status_code == 403
 
+    def test_put_unknown_key_returns_422(self) -> None:
+        """PUT /settings with a key not in _ALLOWED_KEYS returns 422 before any DB write."""
+        async def _run():
+            session_local = await _make_session()
+            rm = _mock_rm()
+            app.dependency_overrides[get_db] = _db_override(session_local)
+            app.dependency_overrides[get_round_manager] = lambda: rm
+            try:
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    return await client.put(
+                        "/settings",
+                        headers=_admin_headers(),
+                        json={"evil_key": "injected_value"},
+                    )
+            finally:
+                app.dependency_overrides.clear()
+
+        r = asyncio.run(_run())
+        assert r.status_code == 422
+        assert "evil_key" in r.json()["detail"]
+
     def test_put_settings_invalid_numeric_returns_422(self) -> None:
         """PUT /settings with a non-integer numeric field returns 422 before DB write."""
         async def _run():

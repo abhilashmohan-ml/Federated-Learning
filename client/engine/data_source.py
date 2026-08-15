@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Protocol, Tuple
 
@@ -93,7 +94,9 @@ class ProdDataSource:
     def _save_sidecar(self, names: set[str]) -> None:
         tmp = self._sidecar.with_suffix(".tmp")
         tmp.write_text(json.dumps(sorted(names)))
-        tmp.rename(self._sidecar)  # atomic on POSIX; near-atomic on Windows NTFS
+        # os.replace is atomic on POSIX and overwrites the target on Windows
+        # (unlike Path.rename which raises FileExistsError on Windows NTFS).
+        os.replace(tmp, self._sidecar)
 
     def _new_files(self) -> list[Path]:
         return [

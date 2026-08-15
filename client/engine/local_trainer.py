@@ -115,12 +115,13 @@ class LocalTrainer:
         results = fit_all_models(time, flux)
 
         # ── Step 3: Select best model by AIC ────────────────────────────────────
-        # `r.selected` is True for exactly one model (the one with the lowest AIC).
-        # If somehow no model was selected (e.g., all fitters failed), fall back
-        # to the first available result.
+        if not results:
+            raise RuntimeError(
+                f"All Hermia models failed to converge for site {self.settings.site_id}"
+            )
         best = next(
-            (r for r in results.values() if r.selected),  # first selected model
-            list(results.values())[0],                     # fallback: first model
+            (r for r in results.values() if r.selected),
+            list(results.values())[0],
         )
 
         # ── Step 4: Compute derived process metrics ─────────────────────────────

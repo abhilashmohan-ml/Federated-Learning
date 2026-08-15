@@ -16,7 +16,13 @@ from server.db.settings_store import SettingsStore
 router = APIRouter()
 log = get_logger(__name__)
 
-# Keys whose values must be valid integers before we commit them to the DB.
+# Complete set of keys the /settings API accepts.  Any other key is rejected
+# with 422 so callers get a clear error instead of silently dirtying the DB.
+_ALLOWED_KEYS: frozenset[str] = frozenset(
+    {"aggregation_mode", "quorum_min_sites", "time_window_seconds", "heartbeat_seconds"}
+)
+
+# Subset of allowed keys whose values must parse as integers.
 _NUMERIC_KEYS: frozenset[str] = frozenset(
     {"quorum_min_sites", "time_window_seconds", "heartbeat_seconds"}
 )
@@ -48,6 +54,14 @@ async def update_settings(
                    quorum_min_sites (int str), time_window_seconds (int str),
                    heartbeat_seconds (int str).
     """
+    # Reject unknown keys before touching the database.
+    unknown = set(payload) - _ALLOWED_KEYS
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown settings key(s): {', '.join(sorted(unknown))}",
+        )
+
     # Validate numeric fields BEFORE touching the database.
     for key, value in payload.items():
         if key in _NUMERIC_KEYS:

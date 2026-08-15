@@ -1,6 +1,7 @@
 """Lightweight per-site status HTTP server — polled by the FL server heartbeat."""
 from __future__ import annotations
 
+import hmac
 import threading
 from typing import Any
 
@@ -27,7 +28,8 @@ def site_status(
     """
     settings = get_client_settings()
     if settings.site_secret:   # only enforce when SITE_SECRET is configured
-        if credentials is None or credentials.credentials != settings.site_secret:
+        token = credentials.credentials if credentials is not None else ""
+        if not hmac.compare_digest(token, settings.site_secret):
             raise HTTPException(status_code=401, detail="Unauthorized")
     s = get_state()
     return {

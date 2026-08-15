@@ -46,11 +46,16 @@ async def test_quorum_policy_triggers_at_min_sites() -> None:
 
 @pytest.mark.asyncio
 async def test_run_counts_incremented_per_site() -> None:
+    """Run count increases by 1 each time a site contributes to a distinct round."""
     rm = RoundManager()
-    rm.set_policy(QuorumPolicy(min_sites=5))   # prevent aggregation
+    rm.set_policy(QuorumPolicy(min_sites=5))   # prevent aggregation mid-round
     await rm.start_new_round()
     await rm.receive_update(_make_update("site_a", 1))
-    await rm.receive_update(_make_update("site_a", 1))
+    assert rm._site_run_counts["site_a"] == 1
+
+    # Start a second round and submit again — count must reach 2.
+    await rm.start_new_round()
+    await rm.receive_update(_make_update("site_a", 2))
     assert rm._site_run_counts["site_a"] == 2
 
 

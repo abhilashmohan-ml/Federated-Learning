@@ -183,6 +183,15 @@ class RoundManager:
             log.warning("unknown_round", round_id=rid, site=update.site_id)
             return
 
+        # Reject duplicate update from a site that already contributed this round.
+        if update.site_id in self._rounds[rid].participating_sites:
+            log.warning(
+                "duplicate_update_ignored",
+                site=update.site_id,
+                round_id=rid,
+            )
+            return
+
         # Buffer the update
         self._updates[rid].append(update)
         self._rounds[rid].participating_sites.append(update.site_id)
@@ -272,6 +281,9 @@ class RoundManager:
             self._current_global = gm.weights
             self._model_version  = gm.version
 
+            # Release update payloads — they can be large and are no longer needed.
+            self._updates.pop(round_id, None)
+
             r.status = RoundStatus.COMPLETE
             r.completed_at = datetime.now(timezone.utc)
             r.global_model_version = gm.version
@@ -279,6 +291,7 @@ class RoundManager:
             log.info("round_complete", round_id=round_id, model_version=gm.version)
 
         except Exception as exc:
+            self._updates.pop(round_id, None)
             r.status = RoundStatus.FAILED
             log.error("aggregation_failed", round_id=round_id, error=str(exc))
 
