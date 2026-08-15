@@ -15,11 +15,12 @@ Five sites collaboratively train a shared **Physics-Informed Neural Network (PIN
 | Filter sizing | Minimum filter area A_min and flux ratio |
 | Fouling regime classification | Hermia AIC/BIC model selection across 5 blocking models |
 | Privacy guarantee | Gaussian DP noise on all gradient updates; raw CSVs never leave the site |
-| Live dashboards | Flet web UI for the central server and each client site; shows run count and last-run time per site |
+| Live dashboards | Flet web UI for the central server and each client site; shows run count, last-run time per site, and physics charts (J(t) flux decline, Amin bar, flux ratio bar) rendered via matplotlib Agg PNG |
 | Dev mode | `DEV_MODE=true` — each site generates synthetic Combined 1-A flux data with configurable physics params; no CSV files needed |
 | Prod mode | Sites watch a directory for new `filtration_*.csv` files; training triggers automatically on new data |
 | Pluggable aggregation policy | QuorumPolicy (N sites) or TimeWindowPolicy (elapsed time); changeable live via `PUT /settings` API |
-| Site heartbeat polling | Server periodically polls each site's `/site/status` to track run counts and last-run timestamps |
+| Auto-round continuation | After each aggregation the server automatically starts the next round; quorum fires on every round without manual `POST /federation/round/start` |
+| Site heartbeat polling | Server periodically polls each site's `/site/status` to track run counts, last-run timestamps, and live training phase |
 | Dynamic site registration | Any site_id string; no hardcoded `site_1..site_5` in production code |
 
 ---
@@ -359,6 +360,10 @@ Round N
 ```
 
 Aggregation triggers when `MIN_SITES_PER_ROUND` (default 3) updates arrive **or** `ROUND_TIMEOUT_SECONDS` (default 300 s) elapses — whichever is first.
+
+After each completed round the server automatically starts the next round without requiring another `POST /federation/round/start` call. The cycle continues until `FL_ROUNDS` is reached.
+
+The client "Trigger Manual Round" button calls `GET /federation/current-round` (not `POST /federation/round/start`) — it joins the open round and runs training independently per site without broadcasting to other sites.
 
 Round status flow: `PENDING → COLLECTING → AGGREGATING → COMPLETE` (or `FAILED`)
 

@@ -65,16 +65,19 @@ Each site runs in a separate network-isolated environment. In Docker dev, this i
 | Settings API | `server/api/settings.py` | `GET /settings` (any site), `PUT /settings` (admin key required via `X-Admin-Key` header) |
 | Models API | `server/api/models.py` | `GET /models/global-model` — returns current global weights from RoundManager |
 | Health API | `server/api/health.py` | `GET /health/` — liveness probe |
-| RoundManager | `server/core/round_manager.py` | In-memory round state machine; pluggable `AggregationPolicy`; `sync_site_run_info`, `mark_site_error` |
+| RoundManager | `server/core/round_manager.py` | In-memory round state machine; pluggable `AggregationPolicy`; `sync_site_run_info`, `sync_site_phase`, `mark_site_error`; auto-starts next round after aggregation via `asyncio.create_task`; `_background_tasks` set prevents GC of in-flight tasks |
 | AggregationPolicy | `server/core/aggregation_policy.py` | `AggregationPolicy` Protocol; `QuorumPolicy`; `TimeWindowPolicy` |
-| SitePoller | `server/core/site_poller.py` | Asyncio heartbeat task; polls each site's `/site/status`; calls `sync_site_run_info` |
+| SitePoller | `server/core/site_poller.py` | Asyncio heartbeat task; polls each site's `/site/status`; calls `sync_site_run_info` (run counts) and `sync_site_phase` (training phase) on success; calls `mark_site_error` on failure |
 | FedProxAggregator | `server/core/aggregator.py` | Weighted FedAvg aggregation |
 | ModelRegistry | `server/core/model_registry.py` | Model versioning and retrieval |
 | DB engine | `server/db/database.py` | Async SQLAlchemy engine; `get_db` dependency |
 | ORM models | `server/db/models.py` | SiteRegistry, RoundRecord, ModelUpdateRecord, RevokedToken, ServerSetting |
 | SettingsStore | `server/db/settings_store.py` | Async key-value store backed by `server_settings` table; defaults on first load |
-| Server dashboard | `server/ui/app.py` | Flet multi-page dashboard; poll loop extracts `run_counts`/`last_run_at` from snapshot |
+| Server dashboard | `server/ui/app.py` | Flet multi-page dashboard; poll loop extracts `run_counts`/`last_run_at`/`site_metrics` from snapshot |
 | Site card | `server/ui/components/site_card.py` | `SiteCard.set_run_info(run_count, last_run_at)` — smart date display |
+| Graphs page | `server/ui/pages/graphs.py` | Comparative charts across all sites; `build()` caches result in `self._built` to prevent Flet re-attach crash on navigation |
+| FluxChart | `server/ui/components/flux_chart.py` | `multi_site=True`: Amin bar chart per site (matplotlib PNG); `multi_site=False`: J(t) line chart |
+| LRVChart | `server/ui/components/lrv_chart.py` | `multi_site=True`: flux ratio bar chart per site (matplotlib PNG) |
 | Settings page | `server/ui/pages/settings.py` | RadioGroup Quorum/TimeWindow; heartbeat field; `PUT /settings` via httpx |
 
 ### 2.2 Client — FL Client Application (`client/`)
@@ -86,11 +89,11 @@ Each site runs in a separate network-isolated environment. In Docker dev, this i
 | DataSource | `client/engine/data_source.py` | `DataSource(Protocol)`, `DevDataSource`, `ProdDataSource`, `NoNewDataError` |
 | LocalTrainer | `client/engine/local_trainer.py` | `__init__(data_source: DataSource)`; Hermia fitting, DP noise, build ModelUpdate payload |
 | Scheduler | `client/engine/scheduler.py` | `_watch_dev()` / `_watch_prod()` / `start_scheduler(data_source)` — drives training loop |
-| TrainingState | `client/engine/state.py` | Shared state: `run_count`, `last_run_at`, `phase` |
+| TrainingState | `client/engine/state.py` | Shared state: `run_count`, `last_run_at`, `phase`, `flux_times: list[float]`, `flux_vals: list[float]` — flux curve written by LocalTrainer, read by client charts |
 | StatusServer | `client/comms/status_server.py` | FastAPI `GET /site/status` (bearer auth); `start_status_server(port)` |
 | FLClient | `client/comms/fl_client.py` | HTTPS transport: authenticate, upload_update, get_global_model, get_current_round, retry with backoff |
 | Heartbeat | `client/comms/heartbeat.py` | Daemon thread; periodic health ping to server |
-| Client UI | `client/ui/app.py` | Flet status + local results pages |
+| Client UI | `client/ui/app.py` | Flet status + local results pages; `LocalResultsPage` renders J(t) flux chart via matplotlib Agg PNG |
 
 ### 2.3 Shared Physics Library (`shared/`)
 
@@ -339,8 +342,10 @@ Policy is swapped live via `RoundManager.set_policy(policy)` — no server resta
 1. Reads `SITE_STATUS_URLS` env var (`site_a:http://a:9001,site_b:http://b:9001`)
 2. GETs `/site/status` from each configured site every `heartbeat_seconds`
 3. Passes `Authorization: Bearer {SITE_POLL_SECRET}` header (when configured)
-4. On success: calls `RoundManager.sync_site_run_info(site_id, run_count, last_run_at)`
+4. On success: calls `RoundManager.sync_site_run_info(site_id, run_count, last_run_at)` (run tracking) AND `RoundManager.sync_site_phase(site_id, phase)` (live status in dashboard)
 5. On failure: calls `RoundManager.mark_site_error(site_id)`; never raises
+
+`sync_site_phase` maps the raw `"phase"` string from `/site/status` to a `SiteStatus` enum. It never downgrades a `DONE` site — once a site posts its update for the current round its status stays `DONE` until the round resets. This ensures all sites configured in `SITE_STATUS_URLS` appear immediately in the server dashboard (even before they have submitted any update), because the poller registers them via the first heartbeat poll.
 
 The poller is **read-only** — it never triggers aggregation directly.
 
@@ -363,3 +368,50 @@ No hardcoded `site_1..site_5` exists in any production Python code. Sites are:
 - **Identified** by their `SITE_ID` env var in each client container
 
 Production code uses only `str` site identifiers with no assumed format or enumeration.
+
+### 9.6 Auto-Round Continuation
+
+After each successful aggregation `_aggregate()` auto-starts the next round:
+
+```
+Round N complete
+  ↓
+_aggregate() → r.status = COMPLETE
+  ↓  (if current_round_id < fl_rounds)
+Reset DONE sites → IDLE
+  ↓
+asyncio.create_task(start_new_round())  ← stored in _background_tasks
+  ↓
+Round N+1 opens (status=COLLECTING)
+```
+
+This means **quorum fires on every round**, not just the first. The server dashboard shows continuous round progression without the operator needing to call `POST /federation/round/start` after round 1. The final round (round_id == FL_ROUNDS) does not auto-start a successor.
+
+### 9.7 Dashboard Chart Rendering
+
+Flet ≥ 0.85 has no native chart widget. All charts use the **matplotlib Agg backend** (non-interactive PNG renderer):
+
+```python
+import matplotlib
+matplotlib.use("Agg")   # no display connection needed — renders to bytes
+import matplotlib.pyplot as plt
+import io
+
+fig, ax = plt.subplots(figsize=(8, 3))
+# ... draw chart ...
+buf = io.BytesIO()
+fig.savefig(buf, format="png", dpi=96, bbox_inches="tight")
+plt.close(fig)           # prevent memory leak — always close after savefig
+
+ft.Image(src=buf.getvalue(), fit=ft.BoxFit.CONTAIN, expand=True)
+```
+
+`GraphsPage.build()` caches its return value in `self._built`:
+```python
+def build(self) -> ft.Control:
+    if self._built is not None:
+        return self._built
+    self._built = ft.Column([...])
+    return self._built
+```
+This prevents Flet's "control already added to page" crash when the user navigates away from and back to the Graphs page.
