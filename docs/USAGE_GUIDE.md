@@ -507,7 +507,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Re-run `init_db.py` after changing `SITE_N_SECRET` values to re-hash them.
+Re-run `init_db.py` after changing secrets in `REGISTERED_SITES` to re-hash them.
 
 ---
 

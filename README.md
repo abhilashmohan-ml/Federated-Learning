@@ -210,7 +210,8 @@ Edit `.env` — make these 5 changes for venv dev:
 SERVER_SECRET_KEY=<generated secret>
 SERVER_DB_URL=sqlite+aiosqlite:///./viral_fl.db   # SQLite, no install needed
 SERVER_URL=http://localhost:8000
-SITE_1_SECRET=<secret>  # through SITE_5_SECRET
+REGISTERED_SITES=site_1:<secret1>,site_2:<secret2>,site_3:<secret3>,site_4:<secret4>,site_5:<secret5>
+SITE_SECRET=<secret1>   # matches the secret for whichever site this client is
 FL_ROUNDS=5             # optional: faster dev cycle
 MIN_SITES_PER_ROUND=2   # optional: easier to trigger with fewer clients
 ```

@@ -58,4 +58,4 @@ foreach ($i in 1..5) {
     Start-Sleep -Milliseconds 500
 }
 
-Write-Host "All 7 windows launched." -ForegroundColor Green
+Write-Host "All 7 windows launched (DEV_MODE — synthetic data, no CSV files needed)." -ForegroundColor Green
