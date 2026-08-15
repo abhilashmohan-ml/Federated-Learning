@@ -98,6 +98,10 @@ class ClientSettings(BaseSettings):
     dev_noise:    float = 2.0     # DEV_NOISE env var — flux noise σ
     dev_tmp_base: float = 1.0     # DEV_TMP_BASE env var — initial TMP (bar)
 
+    # ── Scheduler mode ──────────────────────────────────────────────────────────
+    auto_schedule: bool = False  # AUTO_SCHEDULE env var — False: manual button per site only;
+                                 # True: dev-mode scheduler auto-trains on any collecting round
+
     # ── Prod-mode data polling ───────────────────────────────────────────────────
     data_poll_seconds:   int   = 60     # how often ProdDataSource checks for new CSVs
 
