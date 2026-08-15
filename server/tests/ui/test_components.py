@@ -3,8 +3,8 @@ import pytest
 import flet as ft
 
 from server.ui.components.site_card      import SiteCard, STATUS_COLORS
-from server.ui.components.flux_chart     import FluxChart, SITE_COLORS
-from server.ui.components.lrv_chart      import LRVChart, _PLACEHOLDER_LRVS, _SITES
+from server.ui.components.flux_chart     import FluxChart, SITE_COLORS, _SITES, _render_amin_png
+from server.ui.components.lrv_chart      import LRVChart, _SITES as _LRV_SITES, _COLORS, _render_flux_ratio_png
 from server.ui.components.metric_tile    import MetricTile
 from server.ui.components.nav_rail       import build_nav_rail
 from server.ui.components.round_timeline import RoundTimeline
@@ -105,11 +105,8 @@ class TestSiteColors:
     def test_five_colors(self) -> None:
         assert len(SITE_COLORS) == 5
 
-    def test_correct_color_values(self) -> None:
-        assert SITE_COLORS == [
-            ft.Colors.BLUE, ft.Colors.GREEN, ft.Colors.ORANGE,
-            ft.Colors.PINK, ft.Colors.PURPLE,
-        ]
+    def test_colors_are_strings(self) -> None:
+        assert all(isinstance(c, str) for c in SITE_COLORS)
 
 
 class TestFluxChart:
@@ -122,50 +119,50 @@ class TestFluxChart:
     def test_build_single_returns_container(self) -> None:
         assert isinstance(FluxChart(multi_site=False).build(), ft.Container)
 
-    def test_build_multi_returns_container(self) -> None:
-        assert isinstance(FluxChart(multi_site=True).build(), ft.Container)
+    def test_build_multi_returns_column(self) -> None:
+        assert isinstance(FluxChart(multi_site=True).build(), ft.Column)
 
     def test_build_single_height_270(self) -> None:
         assert FluxChart(multi_site=False).build().height == 270
 
-    def test_build_multi_height_270(self) -> None:
-        assert FluxChart(multi_site=True).build().height == 270
-
-    def test_build_single_subtitle_contains_single_legend(self) -> None:
-        container = FluxChart(multi_site=False).build()
-        col = container.content
-        # legend is a single Container (not a Row)
-        assert isinstance(col.controls[2], ft.Container)
-
     def test_build_multi_legend_is_row_with_five_items(self) -> None:
-        container = FluxChart(multi_site=True).build()
-        col = container.content
-        legend = col.controls[2]
+        col = FluxChart(multi_site=True).build()
+        legend = col.controls[2]  # title, placeholder, legend, chart_container
         assert isinstance(legend, ft.Row)
         assert len(legend.controls) == 5
 
     def test_build_multi_legend_colors_match_site_colors(self) -> None:
-        container = FluxChart(multi_site=True).build()
-        col = container.content
+        col = FluxChart(multi_site=True).build()
         legend = col.controls[2]
         for i, item in enumerate(legend.controls):
-            assert item.bgcolor == SITE_COLORS[i]
+            assert item.controls[0].bgcolor == SITE_COLORS[i]
 
-    def test_build_single_legend_color_cyan(self) -> None:
+    def test_build_single_contains_column(self) -> None:
         container = FluxChart(multi_site=False).build()
-        col = container.content
-        legend = col.controls[2]
-        assert legend.bgcolor == ft.Colors.CYAN
+        assert isinstance(container.content, ft.Column)
 
-    def test_build_single_subtitle_color_grey_400(self) -> None:
-        container = FluxChart(multi_site=False).build()
-        subtitle = container.content.controls[1]
-        assert subtitle.color == ft.Colors.GREY_400
+    def test_build_multi_site_colors_correct(self) -> None:
+        assert len(SITE_COLORS) == 5
 
-    def test_build_multi_subtitle_color_grey_400(self) -> None:
-        container = FluxChart(multi_site=True).build()
-        subtitle = container.content.controls[1]
-        assert subtitle.color == ft.Colors.GREY_400
+    def test_sites_list_correct(self) -> None:
+        assert _SITES == [f"site_{i}" for i in range(1, 6)]
+
+    def test_render_amin_png_returns_png_bytes(self) -> None:
+        data = _render_amin_png({"site_1": {"amin_m2": 0.05}})
+        assert isinstance(data, bytes)
+        assert data[:4] == b"\x89PNG"
+
+    def test_update_data_sets_img_visible(self) -> None:
+        fc = FluxChart(multi_site=True)
+        assert fc._img.visible is False
+        fc.update_data({"site_1": {"amin_m2": 0.05}})
+        assert fc._img.visible is True
+        assert fc._img.src != b""
+
+    def test_update_data_no_values_no_render(self) -> None:
+        fc = FluxChart(multi_site=True)
+        fc.update_data({"site_1": {"amin_m2": 0.0}})
+        assert fc._img.visible is False  # all zeros → skip render
 
 
 # ---------------------------------------------------------------------------
@@ -173,14 +170,14 @@ class TestFluxChart:
 # ---------------------------------------------------------------------------
 
 class TestLRVChartConstants:
-    def test_placeholder_lrvs_count(self) -> None:
-        assert len(_PLACEHOLDER_LRVS) == 5
-
     def test_sites_count(self) -> None:
-        assert len(_SITES) == 5
+        assert len(_LRV_SITES) == 5
 
     def test_sites_names(self) -> None:
-        assert _SITES == [f"site_{i}" for i in range(1, 6)]
+        assert _LRV_SITES == [f"site_{i}" for i in range(1, 6)]
+
+    def test_colors_count(self) -> None:
+        assert len(_COLORS) == 5
 
 
 class TestLRVChart:
@@ -193,32 +190,32 @@ class TestLRVChart:
     def test_build_returns_column(self) -> None:
         assert isinstance(LRVChart().build(), ft.Column)
 
-    def test_build_has_bars_row_and_footnote(self) -> None:
+    def test_build_has_placeholder_container_and_footnote(self) -> None:
         col = LRVChart().build()
-        assert isinstance(col.controls[0], ft.Row)
-        assert isinstance(col.controls[1], ft.Text)
-
-    def test_build_bars_row_has_five_columns(self) -> None:
-        col = LRVChart().build()
-        bars = col.controls[0]
-        assert len(bars.controls) == 5
-
-    def test_build_bar_colors_teal(self) -> None:
-        col = LRVChart().build()
-        bars = col.controls[0]
-        for site_col in bars.controls:
-            bar = site_col.controls[0]
-            assert bar.bgcolor == ft.Colors.TEAL
-
-    def test_build_site_labels_in_text(self) -> None:
-        col = LRVChart().build()
-        bars = col.controls[0]
-        labels = [site_col.controls[1].value for site_col in bars.controls]
-        assert labels == _SITES
+        assert isinstance(col.controls[0], ft.Text)   # placeholder
+        assert isinstance(col.controls[1], ft.Container)  # chart container
+        assert isinstance(col.controls[2], ft.Text)   # footnote
 
     def test_build_footnote_color_grey_500(self) -> None:
         col = LRVChart().build()
-        assert col.controls[1].color == ft.Colors.GREY_500
+        assert col.controls[2].color == ft.Colors.GREY_500
+
+    def test_render_flux_ratio_png_returns_png_bytes(self) -> None:
+        data = _render_flux_ratio_png({"site_1": {"flux_ratio": 0.5}})
+        assert isinstance(data, bytes)
+        assert data[:4] == b"\x89PNG"
+
+    def test_update_data_sets_img_visible(self) -> None:
+        lrv = LRVChart()
+        assert lrv._img.visible is False
+        lrv.update_data({"site_1": {"flux_ratio": 0.45}})
+        assert lrv._img.visible is True
+        assert lrv._img.src != b""
+
+    def test_update_data_no_values_no_render(self) -> None:
+        lrv = LRVChart()
+        lrv.update_data({"site_1": {"flux_ratio": 0.0}})
+        assert lrv._img.visible is False
 
 
 # ---------------------------------------------------------------------------

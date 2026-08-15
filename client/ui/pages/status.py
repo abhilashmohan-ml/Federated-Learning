@@ -1,14 +1,16 @@
 """Status page — connection info, current round, training progress."""
 from __future__ import annotations
 
+import os
 import threading
+from datetime import datetime, timezone
 from typing import Any
 
 import flet as ft
 
 from client.comms.fl_client import FLClient
 from client.config import get_client_settings
-from client.engine.state import TrainingState
+from client.engine.state import TrainingState, get_state, update_state
 
 _PHASE_COLORS = {
     "idle":      ft.Colors.GREY_400,
@@ -46,10 +48,51 @@ class StatusPage:
 
     def _run_round(self) -> None:
         try:
-            round_info = self.fl_client.start_round()
+            from client.engine.data_source import DevDataSource, ProdDataSource
+            from client.engine.local_trainer import LocalTrainer
+
+            cfg = self.settings
+            if cfg.dev_mode:
+                physics = {
+                    "J0": cfg.dev_j0, "k1": cfg.dev_k1, "k2": cfg.dev_k2,
+                    "noise": cfg.dev_noise, "tmp_base": cfg.dev_tmp_base,
+                }
+                ds = DevDataSource(physics, jitter=cfg.dev_jitter_fraction)
+            else:
+                data_dir = os.path.dirname(cfg.local_data_path) or f"data/{cfg.site_id}"
+                ds = ProdDataSource(data_dir)
+
+            trainer = LocalTrainer(data_source=ds)
+
+            # Join existing collecting round or create one — does NOT broadcast to others.
+            round_info = self.fl_client.get_current_round()
             self._round_text.value = f"Round  : {round_info.round_id}"
-            self._phase_text.value = f"Phase  : {round_info.status.value}"
+            self._phase_text.value = "Phase  : training"
+            self.page.update()
+
+            update_state(phase="training", current_round_id=round_info.round_id)
+            update = trainer.train_and_prepare_update(round_info.round_id)
+
+            update_state(phase="uploading")
+            self._phase_text.value = "Phase  : uploading"
+            self.page.update()
+
+            self.fl_client.upload_update(update)
+
+            now = datetime.now(timezone.utc).isoformat()
+            state = get_state()
+            update_state(
+                phase="done",
+                last_round_completed=round_info.round_id,
+                run_count=state.run_count + 1,
+                last_run_at=now,
+                last_flux_ratio=update.local_metrics.get("flux_ratio"),
+                last_amin=update.local_metrics.get("amin_m2"),
+                last_hermia_model=update.hermia_best_model,
+            )
+            self._phase_text.value = "Phase  : done"
         except Exception as exc:
+            update_state(phase="error")
             self._round_text.value = "Round  : ERROR"
             self._phase_text.value = f"Phase  : {str(exc)[:40]}"
         self._round_button.disabled = False

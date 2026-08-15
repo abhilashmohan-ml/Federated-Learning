@@ -82,10 +82,9 @@ class TestGraphsPage:
 
     def test_build_contains_flux_and_lrv_charts(self) -> None:
         col = GraphsPage(_mock_page()).build()
-        types = {type(c) for c in col.controls}
-        # FluxChart.build() → ft.Container; LRVChart.build() → ft.Column
-        assert ft.Container in types
-        assert ft.Column in types
+        column_controls = [c for c in col.controls if isinstance(c, ft.Column)]
+        # FluxChart(multi_site=True) → ft.Column; LRVChart → ft.Column
+        assert len(column_controls) == 2
 
     def test_build_placeholder_texts_grey_500(self) -> None:
         col = GraphsPage(_mock_page()).build()
@@ -93,7 +92,9 @@ class TestGraphsPage:
             c for c in col.controls
             if isinstance(c, ft.Text) and c.color == ft.Colors.GREY_500
         ]
-        assert len(grey_texts) == 2
+        # Only the Hermia placeholder text is a direct grey_500 child;
+        # the LRVChart footnote lives inside its nested Column.
+        assert len(grey_texts) == 1
 
 
 # ---------------------------------------------------------------------------

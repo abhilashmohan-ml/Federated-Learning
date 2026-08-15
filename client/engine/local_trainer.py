@@ -57,6 +57,7 @@ import numpy as np
 
 from client.config              import get_client_settings
 from client.engine.data_source  import DataSource
+from client.engine.state        import update_state
 from shared.models.hermia       import fit_all_models, compute_flux_ratio, compute_amin
 from shared.crypto.noise        import add_gaussian_noise
 from shared.schemas.federation  import ModelUpdate
@@ -161,6 +162,13 @@ class LocalTrainer:
         # a new dict with noise added to each value. After this step, the exact
         # parameter values are protected — an observer cannot reconstruct them.
         delta_W = add_gaussian_noise(delta_W, sigma=self.settings.dp_noise_sigma)
+
+        # Store flux curve for UI chart (downsample to 50 points max for UI)
+        step = max(1, len(time) // 50)
+        update_state(
+            flux_times=[float(t) for t in time[::step]],
+            flux_vals=[float(f) for f in flux[::step]],
+        )
 
         log.info(
             "local_training_complete",

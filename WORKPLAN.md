@@ -193,3 +193,46 @@ All 9 bugs and 3 improvements applied; 739 tests green.
         SitePoller passes Authorization: Bearer header using site_poll_secret.
   - [x] fix(docker-compose): missing SITE_STATUS_URLS, CLIENT_STATUS_PORT for all clients.
         Added all required env vars to server and client services.
+
+## Bug Fixes — 5 UI/Runtime Bugs (2026-08-15)
+
+All 5 bugs fixed; 749 tests green; ruff and mypy --strict clean.
+
+  - [x] Bug 1 — Manual run isolation: "Trigger Manual Round" was calling start_round()
+        which broadcasts a new server-side round that all schedulers respond to. Fixed by
+        having _run_round() call get_current_round() + train_and_prepare_update() +
+        upload_update() directly — joins an existing collecting round, never creates one.
+        client/ui/pages/status.py
+
+  - [x] Bug 2 — Quorum only fires once: After round 1 completes no subsequent rounds
+        auto-started. Fixed by adding asyncio.create_task(start_new_round()) after
+        successful aggregation (outside try/except, with DONE→IDLE site reset).
+        asyncio task GC risk fixed: _background_tasks set holds strong references.
+        server/core/round_manager.py
+
+  - [x] Bug 3 — No graphs: Flet 0.85.3 has no native chart widgets. All charts were
+        static placeholders. Fixed using matplotlib Agg backend to render PNG bytes,
+        displayed via ft.Image(src=bytes). Three chart renderers implemented:
+        Amin bar (server, multi-site), flux_ratio bar (server), J(t) line (client).
+        server/ui/components/flux_chart.py, lrv_chart.py, server/ui/pages/graphs.py,
+        server/ui/app.py, client/ui/pages/local_results.py, client/engine/local_trainer.py,
+        client/engine/state.py
+
+  - [x] Bug 4 — Only 3 of 5 site cards shown: SITE_STATUS_URLS env var was missing from
+        the startup script so SitePoller had no URLs to poll. Added to
+        start_all_server_clients_dev.ps1. Also added sync_site_phase() to update
+        _site_statuses on every heartbeat poll (was only updated on update receipt).
+        server/core/round_manager.py, server/core/site_poller.py,
+        start_all_server_clients_dev.ps1
+
+  - [x] Bug 5 — No timestamps on site cards: Fixed as consequence of Bug 4 (once all
+        5 heartbeats work, set_run_info() already correctly formats dates).
+
+  - [x] Code review findings resolved:
+        * unused base64 imports removed (ruff F401) — flux_chart.py, lrv_chart.py
+        * bare list → list[float] in state.py (mypy --strict)
+        * bare dict[str,dict] → dict[str,dict[str,float]] in chart components (mypy)
+        * asyncio.Task[object] type arg added to _background_tasks set (mypy)
+        * GraphsPage.build() cached to prevent Flet control re-attachment crash
+        * dead FluxChart.update_flux() and duplicate _render_flux_png removed
+        * tests added for auto-start logic, sync_site_phase, flux curve state write

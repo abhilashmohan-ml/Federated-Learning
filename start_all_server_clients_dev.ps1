@@ -33,11 +33,28 @@ function Start-Pane {
 }
 
 # -- Servers -----------------------------------------------------------------
-Start-Pane -Title "Server"     -Command "`$env:DEV_MODE='true'; python server/main.py"    -BgColor "DarkBlue"
+$siteStatusUrls = "site_1:http://localhost:9001,site_2:http://localhost:9002,site_3:http://localhost:9003,site_4:http://localhost:9004,site_5:http://localhost:9005"
+Start-Pane -Title "Server"     -Command "`$env:DEV_MODE='true'; `$env:SITE_STATUS_URLS='$siteStatusUrls'; python server/main.py"    -BgColor "DarkBlue"
 Start-Sleep -Seconds 2
 
 Start-Pane -Title "Server GUI" -Command "python server/ui/app.py"  -BgColor "DarkCyan"
 Start-Sleep -Seconds 1
+
+# -- Read per-site secrets from .env ------------------------------------------------
+$envVars = @{}
+Get-Content "$root\.env" | ForEach-Object {
+    if ($_ -match '^([^#=\s][^=]*)=(.*)$') {
+        $envVars[$matches[1].Trim()] = $matches[2].Trim()
+    }
+}
+$siteSecrets = @{
+    "site_1" = $envVars["SITE_1_SECRET"]
+    "site_2" = $envVars["SITE_2_SECRET"]
+    "site_3" = $envVars["SITE_3_SECRET"]
+    "site_4" = $envVars["SITE_4_SECRET"]
+    "site_5" = $envVars["SITE_5_SECRET"]
+}
+# ---------------------------------------------------------------------------
 
 # -- Per-site physics vars — creates inter-site variance in dev-mode simulation --------
 $devPhysics = @{
@@ -52,10 +69,11 @@ $devPhysics = @{
 foreach ($i in 1..5) {
     $site = "site_$i"
     $physics = $devPhysics[$site]
+    $secret  = $siteSecrets[$site]
     Start-Pane -Title "Site $i" `
-               -Command "$physics; `$env:DEV_MODE='true'; `$env:SITE_ID='$site'; `$env:FLET_CLIENT_PORT='$((8550+$i))'; `$env:CLIENT_STATUS_PORT='$((9000+$i))'; python client/main.py" `
+               -Command "$physics; `$env:DEV_MODE='true'; `$env:SITE_ID='$site'; `$env:SITE_SECRET='$secret'; `$env:FLET_CLIENT_PORT='$((8550+$i))'; `$env:CLIENT_STATUS_PORT='$((9000+$i))'; python client/main.py" `
                -BgColor "DarkGreen"
     Start-Sleep -Milliseconds 500
 }
 
-Write-Host "All 7 windows launched (DEV_MODE — synthetic data, no CSV files needed)." -ForegroundColor Green
+Write-Host "All 7 windows launched (DEV_MODE - synthetic data, no CSV files needed)." -ForegroundColor Green

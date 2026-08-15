@@ -83,6 +83,7 @@ class SitePoller:
                             datetime.fromisoformat(str(raw_ts)) if raw_ts else None
                         )
                         self._rm.sync_site_run_info(site_id, remote_count, last_run_at)
+                        self._rm.sync_site_phase(site_id, str(data.get("phase", "idle")))
                 except Exception as exc:
                     log.warning("site_unreachable", site=site_id, error=str(exc))
                     self._rm.mark_site_error(site_id)

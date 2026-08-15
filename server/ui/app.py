@@ -64,6 +64,7 @@ def main(page: ft.Page) -> None:
     async def poll_loop() -> None:
         dashboard: DashboardPage  = pages[0]
         gm_page:   GlobalModelPage = pages[2]
+        graphs_pg: GraphsPage      = pages[3]
         last_model_version = -1
 
         async with httpx.AsyncClient() as client:
@@ -89,6 +90,11 @@ def main(page: ft.Page) -> None:
                                 run_count=run_counts.get(site_id, 0),
                                 last_run_at=last_run_at.get(site_id),
                             )
+
+                        # Update comparative charts with latest per-site metrics
+                        site_metrics = data.get("site_metrics", {})
+                        if site_metrics:
+                            graphs_pg.update(site_metrics)
 
                         if mv != last_model_version:
                             last_model_version = mv
