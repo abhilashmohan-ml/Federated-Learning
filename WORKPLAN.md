@@ -163,6 +163,25 @@ All 13 tasks implemented, reviewed, and merged.
         status ports 9001-9005
         start_all_server_clients.ps1: prod launcher (no DEV_MODE)
 
+## Security Hardening Deep-Dive (2026-08-15) — commit 9432c21
+
+All 9 bugs and 3 improvements applied; 739 tests green.
+
+  - [x] B1 auth.py: timing-safe bcrypt — _DUMMY_HASH pre-computed; bcrypt always runs
+  - [x] B7 auth.py: hmac.compare_digest for X-Admin-Key (was plain != comparison)
+  - [x] R4 auth.py: reject refresh tokens with no jti (401); server always issues jti
+  - [x] B4 round_manager.py: duplicate site update per round silently dropped + warning logged
+  - [x] R1 round_manager.py: _updates[round_id] freed after aggregation (memory leak)
+  - [x] B8 status_server.py: hmac.compare_digest for bearer token comparison
+  - [x] B3 settings.py: _ALLOWED_KEYS frozenset — unknown keys return 422 before any DB write
+  - [x] B2 local_trainer.py: explicit RuntimeError when all Hermia fitters fail (B2)
+  - [x] B5 data_source.py: os.replace() for atomic sidecar write (Windows-safe)
+  - [x] B6 scheduler.py: auth failure retries in loop (was permanent exit)
+  - [x] B9 hermia.py: log convergence failures + getattr fallback for callable.__name__
+  - [x] R2 main.py: log.critical at startup if SECRET_KEY == "CHANGE_ME"
+  - [x] NOTE: R3 (restrict /internal/status), R5 (revoked_tokens cleanup job),
+              R6 (aggregator warning) deferred to Phase 9 hardening
+
 ## Final Review Findings (feature/data-driven-fl, 2026-08-14)
   - [x] fix(settings-api): PUT /settings had no role check — any site could change policy.
         Added require_admin_token(X-Admin-Key header) dependency to PUT handler.
