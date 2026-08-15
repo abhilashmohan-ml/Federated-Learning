@@ -107,6 +107,11 @@ class RoundManager:
         # Never initialise with hardcoded site names.
         self._site_run_counts:  Dict[str, int]               = {}
         self._site_last_run_at: Dict[str, Optional[datetime]] = {}
+        # Per-site local_metrics (flux_ratio, amin_m2, flux_rmse) for server charts.
+        self._site_metrics:     Dict[str, Dict[str, float]]  = {}
+
+        # Strong references to background asyncio tasks prevent GC between event-loop ticks.
+        self._background_tasks: set[asyncio.Task[object]] = set()
 
     def set_policy(self, policy: AggregationPolicy) -> None:
         """Swap the aggregation policy live (no in-flight round is affected)."""
@@ -132,6 +137,16 @@ class RoundManager:
     def mark_site_error(self, site_id: str) -> None:
         """Mark a site as unreachable (called by SitePoller on connection failure)."""
         self._site_statuses[site_id] = SiteStatus.ERROR
+
+    def sync_site_phase(self, site_id: str, phase: str) -> None:
+        """Update site status from heartbeat poll — never downgrade a DONE site mid-round."""
+        current = self._site_statuses.get(site_id)
+        if current == SiteStatus.DONE:
+            return
+        try:
+            self._site_statuses[site_id] = SiteStatus(phase.lower())
+        except ValueError:
+            self._site_statuses[site_id] = SiteStatus.IDLE
 
     async def start_new_round(self) -> FederationRound:
         """
@@ -160,7 +175,9 @@ class RoundManager:
         # Launch the timeout guard as a background asyncio task.
         # This task sleeps for `round_timeout_seconds`, then triggers aggregation
         # if the round is still COLLECTING (i.e., hasn't finished yet).
-        asyncio.create_task(self._timeout_guard(rid))
+        task = asyncio.create_task(self._timeout_guard(rid))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
         log.info("round_started", round_id=rid)
         return round_
@@ -199,9 +216,11 @@ class RoundManager:
         # Mark this site as DONE (dashboard will show it in green)
         self._site_statuses[update.site_id] = SiteStatus.DONE
 
-        # Track per-site run statistics
+        # Track per-site run statistics and latest local metrics for charts
         self._site_run_counts[update.site_id] = self._site_run_counts.get(update.site_id, 0) + 1
         self._site_last_run_at[update.site_id] = datetime.now(timezone.utc)
+        if update.local_metrics:
+            self._site_metrics[update.site_id] = dict(update.local_metrics)
 
         log.info(
             "update_received",
@@ -294,6 +313,17 @@ class RoundManager:
             self._updates.pop(round_id, None)
             r.status = RoundStatus.FAILED
             log.error("aggregation_failed", round_id=round_id, error=str(exc))
+            return
+
+        # Auto-start next round so quorum triggers on every round, not just the first.
+        # Reset DONE status so sites can participate again next round.
+        if self._current_round_id < self._settings.fl_rounds:
+            for site_id in list(self._site_statuses.keys()):
+                if self._site_statuses[site_id] == SiteStatus.DONE:
+                    self._site_statuses[site_id] = SiteStatus.IDLE
+            task = asyncio.create_task(self.start_new_round())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
 
     async def get_round(self, round_id: int) -> Optional[FederationRound]:
         """
@@ -330,6 +360,9 @@ class RoundManager:
             "last_run_at": {
                 k: v.isoformat() if v else None
                 for k, v in self._site_last_run_at.items()
+            },
+            "site_metrics": {
+                site: dict(m) for site, m in self._site_metrics.items()
             },
         }
 

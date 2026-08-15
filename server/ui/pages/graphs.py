@@ -1,4 +1,6 @@
-"""Graphs page — comparative charts across all 5 sites."""
+"""Graphs page — comparative charts across all 5 sites, updated from poll loop."""
+from __future__ import annotations
+
 import flet as ft
 from server.ui.components.flux_chart import FluxChart
 from server.ui.components.lrv_chart  import LRVChart
@@ -7,21 +9,30 @@ from server.ui.components.lrv_chart  import LRVChart
 class GraphsPage:
     def __init__(self, page: ft.Page) -> None:
         self.page = page
+        self._flux_chart = FluxChart(multi_site=True)
+        self._lrv_chart  = LRVChart(multi_site=True)
+        self._built: ft.Control | None = None
+
+    def update(self, site_metrics: dict[str, dict[str, float]]) -> None:
+        """Refresh charts with latest per-site metrics. Called by server poll loop."""
+        self._flux_chart.update_data(site_metrics)
+        self._lrv_chart.update_data(site_metrics)
 
     def build(self) -> ft.Control:
-        return ft.Column([
-            ft.Text("Comparative Results — All Sites", size=26, weight=ft.FontWeight.BOLD),
+        if self._built is not None:
+            return self._built
+        self._built = ft.Column([
+            ft.Text("Comparative Results — All Sites", size=26,
+                    weight=ft.FontWeight.BOLD),
             ft.Divider(),
-            ft.Text("Flux Decline Overlay  (all 5 sites)", size=17),
-            FluxChart(multi_site=True).build(),
+            ft.Text("Min Filter Area  Amin (m²) — All Sites", size=17),
+            self._flux_chart.build(),
             ft.Divider(),
-            ft.Text("LRV Distribution Across Sites", size=17),
-            LRVChart(multi_site=True).build(),
-            ft.Divider(),
-            ft.Text("Amin vs Throughput  (populate after first complete round)",
-                    size=14, color=ft.Colors.GREY_500),
+            ft.Text("Flux Ratio Distribution Across Sites", size=17),
+            self._lrv_chart.build(),
             ft.Divider(),
             ft.Text("Hermia Model Consensus",  size=17),
-            ft.Text("(bar chart showing most-selected blocking model per site — populate after round 1)",
+            ft.Text("(bar chart — dominant blocking model per site — populates after round 1)",
                     size=12, color=ft.Colors.GREY_500),
         ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16)
+        return self._built

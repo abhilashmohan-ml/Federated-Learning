@@ -123,54 +123,52 @@ class TestStatusPage:
         mock_cls.assert_called_once_with(target=sp._run_round, daemon=True, name="fl-manual-round")
         mock_thread.start.assert_called_once()
 
-    def test_run_round_updates_round_text_with_id(self) -> None:
+    def _run_round_success(self, sp: "StatusPage", round_id: int = 7) -> None:
+        """Helper: run _run_round() with training pipeline fully mocked."""
         from datetime import datetime, timezone
 
         from shared.schemas.federation import FederationRound, RoundStatus
 
-        sp = self._make()
-        sp.fl_client.start_round.return_value = FederationRound(
-            round_id=7,
+        sp.fl_client.get_current_round.return_value = FederationRound(
+            round_id=round_id,
             status=RoundStatus.COLLECTING,
             started_at=datetime.now(timezone.utc),
         )
-        sp._run_round()
+        mock_update = MagicMock(
+            local_metrics={"flux_ratio": 0.8, "amin_m2": 0.05},
+            hermia_best_model="standard",
+        )
+        with patch("client.engine.data_source.DevDataSource"), \
+             patch("client.engine.local_trainer.LocalTrainer") as MockLT, \
+             patch("client.ui.pages.status.update_state"), \
+             patch("client.ui.pages.status.get_state") as mock_gs:
+            mock_gs.return_value = MagicMock(run_count=0)
+            MockLT.return_value.train_and_prepare_update.return_value = mock_update
+            sp._run_round()
+
+    def test_run_round_updates_round_text_with_id(self) -> None:
+        sp = self._make()
+        self._run_round_success(sp, round_id=7)
         assert "7" in sp._round_text.value
 
     def test_run_round_updates_phase_text_with_status(self) -> None:
-        from datetime import datetime, timezone
-
-        from shared.schemas.federation import FederationRound, RoundStatus
-
         sp = self._make()
-        sp.fl_client.start_round.return_value = FederationRound(
-            round_id=1,
-            status=RoundStatus.COLLECTING,
-            started_at=datetime.now(timezone.utc),
-        )
-        sp._run_round()
-        assert "collecting" in sp._phase_text.value
+        self._run_round_success(sp, round_id=1)
+        # After a successful full cycle, final phase text is "done"
+        assert "done" in sp._phase_text.value
 
     def test_run_round_calls_page_update(self) -> None:
-        from datetime import datetime, timezone
-
-        from shared.schemas.federation import FederationRound, RoundStatus
-
         sp = self._make()
-        sp.fl_client.start_round.return_value = FederationRound(
-            round_id=1,
-            status=RoundStatus.COLLECTING,
-            started_at=datetime.now(timezone.utc),
-        )
-        sp._run_round()
-        sp.page.update.assert_called_once()
+        self._run_round_success(sp, round_id=1)
+        # page.update() called at least once (training, uploading, and done phases)
+        assert sp.page.update.called
 
     def test_run_round_on_error_sets_error_text_and_calls_page_update(self) -> None:
         sp = self._make()
-        sp.fl_client.start_round.side_effect = RuntimeError("server down")
+        sp.fl_client.get_current_round.side_effect = RuntimeError("server down")
         sp._run_round()
         assert "ERROR" in sp._round_text.value
-        sp.page.update.assert_called_once()
+        assert sp.page.update.called
 
     def test_handle_round_click_disables_button_before_spawning_thread(self) -> None:
         sp = self._make()
@@ -220,10 +218,10 @@ class TestLocalResultsPage:
         col = LocalResultsPage(_mock_page()).build()
         assert any(isinstance(c, ft.Container) for c in col.controls)
 
-    def test_build_flux_container_height_260(self) -> None:
+    def test_build_flux_container_height_280(self) -> None:
         col = LocalResultsPage(_mock_page()).build()
         container = next(c for c in col.controls if isinstance(c, ft.Container))
-        assert container.height == 260
+        assert container.height == 280
 
     def test_build_flux_subtitle_color_cyan(self) -> None:
         col = LocalResultsPage(_mock_page()).build()

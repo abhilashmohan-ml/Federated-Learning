@@ -1,31 +1,70 @@
-"""LRV bar chart across sites."""
-import flet as ft
+"""Flux-ratio bar chart — matplotlib PNG rendered into a Flet Image widget."""
+from __future__ import annotations
 
-_PLACEHOLDER_LRVS = [4.8, 5.1, 4.6, 5.3, 4.9]
+import io
+
+import flet as ft
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 _SITES = [f"site_{i}" for i in range(1, 6)]
+_COLORS = ["#009688", "#2196F3", "#4CAF50", "#FF9800", "#9C27B0"]
+
+
+def _render_flux_ratio_png(site_metrics: dict[str, dict[str, float]]) -> bytes:
+    """Render flux_ratio bar chart for all sites, return PNG bytes."""
+    values = [site_metrics.get(s, {}).get("flux_ratio", 0.0) for s in _SITES]
+    fig, ax = plt.subplots(figsize=(5, 2.8), facecolor="#1a1a2e")
+    ax.set_facecolor("#1a1a2e")
+    bars = ax.bar(_SITES, values, color=_COLORS, width=0.5)
+    ax.set_ylabel("Flux ratio (J_f/J_0)", color="#cccccc", fontsize=9)
+    ax.set_ylim(0, max(1.1, max(values) * 1.2) if values else 1.1)
+    ax.tick_params(colors="#aaaaaa", labelsize=8)
+    ax.spines[:].set_color("#444444")
+    ax.grid(True, axis="y", color="#333333", linestyle="--", linewidth=0.5)
+    for bar, val in zip(bars, values):
+        if val > 0:
+            ax.text(bar.get_x() + bar.get_width() / 2, val + 0.01,
+                    f"{val:.3f}", ha="center", va="bottom", color="#ffffff", fontsize=7)
+    plt.tight_layout(pad=0.5)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=90, bbox_inches="tight",
+                facecolor=fig.get_facecolor())
+    plt.close(fig)
+    return buf.getvalue()
 
 
 class LRVChart:
     def __init__(self, multi_site: bool = False) -> None:
         self.multi_site = multi_site
+        self._img = ft.Image(
+            src=b"",
+            expand=True,
+            fit=ft.BoxFit.CONTAIN,
+            visible=False,
+        )
+        self._placeholder = ft.Text(
+            "Flux ratio (J_final/J_initial) per site — data populates after first round",
+            size=11,
+            color=ft.Colors.GREY_500,
+        )
 
-    def build(self) -> ft.Control:
-        bars = ft.Row([
-            ft.Column([
-                ft.Container(
-                    width=28,
-                    height=int(_PLACEHOLDER_LRVS[i] * 30),
-                    bgcolor=ft.Colors.TEAL,
-                    border_radius=ft.BorderRadius(3, 3, 0, 0),
-                    content=ft.Text(""),
-                ),
-                ft.Text(_SITES[i], size=10, color=ft.Colors.GREY_500),
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2)
-            for i in range(5)
-        ], spacing=12, alignment=ft.MainAxisAlignment.CENTER)
+    def update_data(self, site_metrics: dict[str, dict[str, float]]) -> None:
+        """Re-render flux_ratio bar chart from latest per-site metrics."""
+        if not any(m.get("flux_ratio", 0) for m in site_metrics.values()):
+            return
+        self._img.src = _render_flux_ratio_png(site_metrics)
+        self._img.visible = True
+        self._placeholder.visible = False
 
+    def build(self) -> ft.Column:
         return ft.Column([
-            bars,
-            ft.Text("Dashed line at LRV=4.0 represents regulatory minimum",
-                    size=10, color=ft.Colors.GREY_500),
-        ])
+            self._placeholder,
+            ft.Container(content=self._img, height=220, expand=True),
+            ft.Text(
+                "Flux ratio = J_final / J_initial  (lower → more fouling)",
+                size=10,
+                color=ft.Colors.GREY_500,
+            ),
+        ], spacing=6)

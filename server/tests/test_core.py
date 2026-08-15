@@ -15,10 +15,11 @@ from server.core.round_manager import RoundManager, get_round_manager
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
-def _mock_settings(min_sites: int = 2, timeout: int = 300) -> MagicMock:
+def _mock_settings(min_sites: int = 2, timeout: int = 300, fl_rounds: int = 50) -> MagicMock:
     s = MagicMock()
     s.min_sites_per_round = min_sites
     s.round_timeout_seconds = timeout
+    s.fl_rounds = fl_rounds
     return s
 
 
@@ -191,9 +192,10 @@ class TestModelRegistry:
 # ── RoundManager ──────────────────────────────────────────────────────────────
 
 class TestRoundManager:
-    def _make_rm(self, min_sites: int = 5, timeout: int = 300) -> RoundManager:
+    def _make_rm(self, min_sites: int = 5, timeout: int = 300, fl_rounds: int = 50) -> RoundManager:
         with patch("server.core.round_manager.get_settings",
-                   return_value=_mock_settings(min_sites=min_sites, timeout=timeout)):
+                   return_value=_mock_settings(min_sites=min_sites, timeout=timeout,
+                                               fl_rounds=fl_rounds)):
             return RoundManager()
 
     # ── start_new_round ────────────────────────────────────────────────────────
@@ -437,6 +439,82 @@ class TestRoundManager:
             return rm.current_global_weights
         weights = asyncio.run(_run())
         assert "q" in weights
+
+    # ── auto-start next round ─────────────────────────────────────────────────
+
+    def test_aggregate_success_schedules_next_round_below_limit(self) -> None:
+        """After successful aggregation below fl_rounds limit, a new round task is created."""
+        async def _run():
+            rm = self._make_rm(min_sites=1, fl_rounds=50)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            rm._updates[r.round_id].append(
+                _make_update("site_1", round_id=r.round_id, layers={"p": [1.0]})
+            )
+            rm._site_statuses["site_1"] = SiteStatus.DONE
+            with patch("asyncio.create_task", return_value=MagicMock()) as mock_task:
+                await rm._aggregate(r.round_id)
+            return mock_task.called
+        assert asyncio.run(_run()) is True
+
+    def test_aggregate_success_no_autostart_at_final_round(self) -> None:
+        """No new round scheduled when current round equals fl_rounds."""
+        async def _run():
+            rm = self._make_rm(min_sites=1, fl_rounds=1)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()  # round_id=1 == fl_rounds
+            rm._updates[r.round_id].append(
+                _make_update("site_1", round_id=r.round_id, layers={"p": [1.0]})
+            )
+            with patch("asyncio.create_task", return_value=MagicMock()) as mock_task:
+                await rm._aggregate(r.round_id)
+            return mock_task.called
+        assert asyncio.run(_run()) is False
+
+    def test_aggregate_success_resets_done_sites_to_idle(self) -> None:
+        """DONE sites are reset to IDLE so they can participate in the next round."""
+        async def _run():
+            rm = self._make_rm(min_sites=1, fl_rounds=50)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            rm._updates[r.round_id].append(
+                _make_update("site_1", round_id=r.round_id, layers={"p": [1.0]})
+            )
+            rm._site_statuses["site_1"] = SiteStatus.DONE
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                await rm._aggregate(r.round_id)
+            return rm._site_statuses.get("site_1")
+        assert asyncio.run(_run()) == SiteStatus.IDLE
+
+    # ── sync_site_phase ───────────────────────────────────────────────────────
+
+    def test_sync_site_phase_sets_known_status(self) -> None:
+        rm = self._make_rm()
+        rm.sync_site_phase("site_1", "training")
+        assert rm._site_statuses["site_1"] == SiteStatus.TRAINING
+
+    def test_sync_site_phase_sets_idle_for_idle_string(self) -> None:
+        rm = self._make_rm()
+        rm.sync_site_phase("site_1", "idle")
+        assert rm._site_statuses["site_1"] == SiteStatus.IDLE
+
+    def test_sync_site_phase_never_downgrades_done(self) -> None:
+        """A DONE site must stay DONE even if the heartbeat reports a different phase."""
+        rm = self._make_rm()
+        rm._site_statuses["site_1"] = SiteStatus.DONE
+        rm.sync_site_phase("site_1", "idle")
+        assert rm._site_statuses["site_1"] == SiteStatus.DONE
+
+    def test_sync_site_phase_invalid_phase_falls_back_to_idle(self) -> None:
+        rm = self._make_rm()
+        rm.sync_site_phase("site_1", "not_a_real_phase")
+        assert rm._site_statuses["site_1"] == SiteStatus.IDLE
+
+    def test_sync_site_phase_new_site_gets_added(self) -> None:
+        rm = self._make_rm()
+        assert "site_x" not in rm._site_statuses
+        rm.sync_site_phase("site_x", "uploading")
+        assert rm._site_statuses["site_x"] == SiteStatus.UPLOADING
 
 
 # ── get_round_manager singleton ───────────────────────────────────────────────

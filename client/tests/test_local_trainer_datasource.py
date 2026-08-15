@@ -60,3 +60,17 @@ def test_trainer_works_with_dev_source() -> None:
             assert update.local_metrics["flux_ratio"] > 0
     finally:
         get_client_settings.cache_clear()
+
+
+def test_trainer_writes_flux_curve_to_state() -> None:
+    """After training, flux time-series must be stored in the shared TrainingState."""
+    from client.engine.state import get_state, update_state
+    # Reset state
+    update_state(flux_times=[], flux_vals=[])
+    src = _make_mock_source(n=121)
+    trainer = LocalTrainer(data_source=src)
+    trainer.train_and_prepare_update(round_id=1)
+    state = get_state()
+    assert len(state.flux_times) > 0, "flux_times must be written to state after training"
+    assert len(state.flux_vals) > 0,  "flux_vals must be written to state after training"
+    assert len(state.flux_times) == len(state.flux_vals)

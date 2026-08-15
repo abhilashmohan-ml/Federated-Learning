@@ -1,9 +1,34 @@
-"""Local results page — J(t) chart placeholder and live summary metrics."""
+"""Local results page — J(t) chart and live summary metrics."""
 from __future__ import annotations
 
+import io
+
 import flet as ft
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from client.engine.state import TrainingState
+
+_PLACEHOLDER_TEXT = "Flux Decline J(t) — data populates after first local training"
+
+
+def _render_flux_png(times: list, vals: list) -> bytes:
+    """Render J(t) line chart as PNG bytes."""
+    fig, ax = plt.subplots(figsize=(6, 2.8), facecolor="#1a1a2e")
+    ax.set_facecolor("#1a1a2e")
+    ax.plot(times, vals, color="#00BCD4", linewidth=2)
+    ax.set_xlabel("Time (min)", color="#aaaaaa", fontsize=9)
+    ax.set_ylabel("Flux (LMH)", color="#aaaaaa", fontsize=9)
+    ax.tick_params(colors="#aaaaaa", labelsize=8)
+    ax.spines[:].set_color("#444444")
+    ax.grid(True, color="#333333", linestyle="--", linewidth=0.5)
+    plt.tight_layout(pad=0.5)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=90, bbox_inches="tight",
+                facecolor=fig.get_facecolor())
+    plt.close(fig)
+    return buf.getvalue()
 
 
 class LocalResultsPage:
@@ -14,10 +39,30 @@ class LocalResultsPage:
         self._flux_ratio_text = ft.Text("-", size=22, weight=ft.FontWeight.BOLD)
         self._hermia_text     = ft.Text("-", size=16, weight=ft.FontWeight.BOLD)
 
+        self._chart_placeholder = ft.Text(
+            _PLACEHOLDER_TEXT, size=12, color=ft.Colors.CYAN,
+        )
+        self._flux_img = ft.Image(
+            src=b"",
+            expand=True,
+            fit=ft.BoxFit.CONTAIN,
+            visible=False,
+        )
+        self._chart_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Flux (LMH) vs Time (min)", size=13, weight=ft.FontWeight.BOLD),
+                self._chart_placeholder,
+                self._flux_img,
+            ], spacing=8),
+            height=280,
+            expand=True,
+            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.CYAN),
+            border_radius=8,
+            padding=16,
+        )
+
     def update_from_state(self, state: TrainingState) -> None:
-        """Refresh metric tiles from a TrainingState snapshot. Called by poll loop."""
-        # last_lrv remains None until LRV extraction via Manabe model is implemented
-        # (same scope note as GlobalModelPage parameter table — see design spec Section 3)
+        """Refresh metrics and flux chart from a TrainingState snapshot."""
         self._lrv_text.value = (
             f"{state.last_lrv:.3f}" if state.last_lrv is not None else "-"
         )
@@ -29,23 +74,12 @@ class LocalResultsPage:
         )
         self._hermia_text.value = state.last_hermia_model or "-"
 
-    def build(self) -> ft.Control:
-        flux_chart = ft.Container(
-            content=ft.Column([
-                ft.Text("Flux (LMH) vs Time (min)", size=13,
-                        weight=ft.FontWeight.BOLD),
-                ft.Text(
-                    "Flux Decline J(t)  (data populates after first local training)",
-                    size=12, color=ft.Colors.CYAN,
-                ),
-            ], spacing=8),
-            height=260,
-            expand=True,
-            bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.CYAN),
-            border_radius=8,
-            padding=16,
-        )
+        if state.flux_times and state.flux_vals:
+            self._flux_img.src = _render_flux_png(state.flux_times, state.flux_vals)
+            self._flux_img.visible = True
+            self._chart_placeholder.visible = False
 
+    def build(self) -> ft.Control:
         metrics = ft.Row([
             ft.Card(content=ft.Container(ft.Column([
                 ft.Text("LRV",      size=11, color=ft.Colors.GREY_500),
@@ -79,7 +113,7 @@ class LocalResultsPage:
         return ft.Column([
             ft.Text("Local Flux Decline  J(t)", size=18,
                     weight=ft.FontWeight.BOLD),
-            flux_chart,
+            self._chart_container,
             ft.Divider(),
             ft.Text("Local Metrics", size=16),
             metrics,
