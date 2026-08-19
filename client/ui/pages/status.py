@@ -11,9 +11,10 @@ import flet as ft
 from client.comms.fl_client import FLClient
 from client.config import get_client_settings
 from client.engine.state import TrainingState, get_state, update_state
+from shared.utils.theme import LC
 
 _PHASE_COLORS = {
-    "idle":      ft.Colors.GREY_400,
+    "idle":      LC.TEXT_MUTED,
     "training":  ft.Colors.BLUE,
     "uploading": ft.Colors.ORANGE,
     "done":      ft.Colors.GREEN,
@@ -28,22 +29,30 @@ class StatusPage:
         self.fl_client = fl_client
 
         self._status_text = ft.Text("Status : IDLE", size=13,
-                                    color=ft.Colors.GREY_400)
-        self._round_text  = ft.Text("Round  : -", size=13)
-        self._phase_text  = ft.Text("Phase  : -", size=13)
+                                    color=LC.TEXT_MUTED)
+        self._round_text  = ft.Text("Round  : -", size=13, color=LC.TEXT_PRIMARY)
+        self._phase_text  = ft.Text("Phase  : -", size=13, color=LC.TEXT_SECONDARY)
         self._round_button = ft.Button(
             "Trigger Manual Round",
             icon=ft.Icons.PLAY_ARROW,
             on_click=self._handle_round_click,
+            style=ft.ButtonStyle(
+                bgcolor=LC.PRIMARY,
+                color=LC.SURFACE,
+            ),
         )
 
     def update_from_state(self, state: TrainingState) -> None:
         """Refresh controls from a TrainingState snapshot. Called by poll loop."""
         phase = state.phase
         self._status_text.value = f"Status : {phase.upper()}"
-        self._status_text.color = _PHASE_COLORS.get(phase, ft.Colors.GREY_400)
-        if state.current_round_id > 0:
-            self._round_text.value = f"Round  : {state.current_round_id}"
+        self._status_text.color = _PHASE_COLORS.get(phase, LC.TEXT_MUTED)
+        if phase in ("training", "uploading"):
+            run_num = state.run_count + 1
+        else:
+            run_num = state.run_count
+        if run_num > 0 or phase not in ("idle",):
+            self._round_text.value = f"Round  : {run_num if run_num > 0 else '-'}"
             self._phase_text.value = f"Phase  : {phase}"
 
     def _run_round(self) -> None:
@@ -64,9 +73,9 @@ class StatusPage:
 
             trainer = LocalTrainer(data_source=ds)
 
-            # Join existing collecting round or create one — does NOT broadcast to others.
             round_info = self.fl_client.get_current_round()
-            self._round_text.value = f"Round  : {round_info.round_id}"
+            this_run = get_state().run_count + 1
+            self._round_text.value = f"Round  : {this_run}"
             self._phase_text.value = "Phase  : training"
             self.page.update()
 
@@ -107,29 +116,33 @@ class StatusPage:
     def build(self) -> ft.Control:
         return ft.Column(
             [
-                ft.Card(content=ft.Container(
-                    ft.Column([
-                        ft.Text("Connection", size=15,
-                                weight=ft.FontWeight.BOLD),
-                        ft.Text(f"Server : {self.settings.server_url}",
-                                size=13),
-                        ft.Text(f"Site ID: {self.settings.site_id}",
-                                size=13),
-                        self._status_text,
-                    ], spacing=4),
-                    padding=16,
-                )),
-                ft.Card(content=ft.Container(
-                    ft.Column([
-                        ft.Text("Current Round", size=15,
-                                weight=ft.FontWeight.BOLD),
-                        self._round_text,
-                        self._phase_text,
-                        ft.ProgressBar(value=0.0, height=10,
-                                       color=ft.Colors.BLUE),
-                    ], spacing=6),
-                    padding=16,
-                )),
+                ft.Card(
+                    content=ft.Container(
+                        ft.Column([
+                            ft.Text("Connection", size=15,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=LC.TEXT_PRIMARY),
+                            ft.Text(f"Server : {self.settings.server_url}",
+                                    size=13, color=LC.TEXT_SECONDARY),
+                            ft.Text(f"Site ID: {self.settings.site_id}",
+                                    size=13, color=LC.TEXT_SECONDARY),
+                            self._status_text,
+                        ], spacing=4),
+                        padding=16,
+                    )),
+                ft.Card(
+                    content=ft.Container(
+                        ft.Column([
+                            ft.Text("Current Round", size=15,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=LC.TEXT_PRIMARY),
+                            self._round_text,
+                            self._phase_text,
+                            ft.ProgressBar(value=0.0, height=10,
+                                           color=ft.Colors.BLUE),
+                        ], spacing=6),
+                        padding=16,
+                    )),
                 self._round_button,
             ],
             spacing=14,

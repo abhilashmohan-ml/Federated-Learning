@@ -123,12 +123,12 @@ class TestMainPageProperties:
             main(page)
         assert page.title == "Viral FL - Server Dashboard"
 
-    def test_theme_mode_dark(self) -> None:
+    def test_theme_mode_light(self) -> None:
         page = _page()
         with patch(_DASH), patch(_SITE), patch(_GLOBAL), \
              patch(_GRAPHS), patch(_SETTINGS), patch(_NAV):
             main(page)
-        assert page.theme_mode == ft.ThemeMode.DARK
+        assert page.theme_mode == ft.ThemeMode.LIGHT
 
     def test_padding_zero(self) -> None:
         page = _page()

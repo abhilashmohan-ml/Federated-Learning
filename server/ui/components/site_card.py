@@ -6,6 +6,8 @@ from typing import Optional
 
 import flet as ft
 
+from shared.utils.theme import LC
+
 STATUS_COLORS = {
     "IDLE":      ft.Colors.GREY,
     "TRAINING":  ft.Colors.BLUE,
@@ -19,14 +21,15 @@ class SiteCard:
     def __init__(self, site_id: str) -> None:
         self.site_id       = site_id
         self._status_text  = ft.Text("IDLE",    size=12, color=ft.Colors.GREY)
-        self._runs_text    = ft.Text("Runs: --", size=11, color=ft.Colors.GREY_400)
-        self._last_text    = ft.Text("Last: --",  size=11, color=ft.Colors.GREY_400)
+        self._runs_text    = ft.Text("Runs: --", size=11, color=LC.TEXT_MUTED)
+        self._last_text    = ft.Text("Last: --",  size=11, color=LC.TEXT_MUTED)
 
     def build(self) -> ft.Control:
         return ft.Card(
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text(self.site_id, size=15, weight=ft.FontWeight.BOLD),
+                    ft.Text(self.site_id, size=15, weight=ft.FontWeight.BOLD,
+                            color=LC.TEXT_PRIMARY),
                     self._status_text,
                     self._runs_text,
                     self._last_text,

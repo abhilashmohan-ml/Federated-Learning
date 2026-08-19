@@ -109,6 +109,8 @@ class RoundManager:
         self._site_last_run_at: Dict[str, Optional[datetime]] = {}
         # Per-site local_metrics (flux_ratio, amin_m2, flux_rmse) for server charts.
         self._site_metrics:     Dict[str, Dict[str, float]]  = {}
+        # Latest global metrics from the most recent successful aggregation.
+        self._global_metrics:   Dict[str, float]             = {}
 
         # Strong references to background asyncio tasks prevent GC between event-loop ticks.
         self._background_tasks: set[asyncio.Task[object]] = set()
@@ -297,8 +299,9 @@ class RoundManager:
             )
 
             # Update the in-memory global model
-            self._current_global = gm.weights
-            self._model_version  = gm.version
+            self._current_global  = gm.weights
+            self._model_version   = gm.version
+            self._global_metrics  = dict(gm.global_metrics)
 
             # Release update payloads — they can be large and are no longer needed.
             self._updates.pop(round_id, None)
@@ -350,12 +353,30 @@ class RoundManager:
         because this method only reads state; it never mutates anything.
         """
         round_ = self._rounds.get(self._current_round_id)
+
+        # Find the most recently completed round for its timestamp.
+        last_complete = next(
+            (r for r in reversed(list(self._rounds.values()))
+             if r.status == RoundStatus.COMPLETE),
+            None,
+        )
+
         return {
             "current_round_id":    self._current_round_id,
             "round_status":        round_.status.value if round_ else "idle",
+            "round_started_at":    round_.started_at.isoformat() if round_ else None,
+            "round_completed_at": (
+                last_complete.completed_at.isoformat()
+                if last_complete and last_complete.completed_at else None
+            ),
             "sites":               await self.get_site_statuses(),
             "model_version":       self._model_version,
-            "participating_sites": list(round_.participating_sites) if round_ else [],
+            "rounds_completed":    self._model_version,   # one per successful aggregation
+            "participating_sites":            list(round_.participating_sites) if round_ else [],
+            "last_round_participating_sites": (
+                list(last_complete.participating_sites) if last_complete else []
+            ),
+            "min_sites":                      self._settings.min_sites_per_round,
             "run_counts":          dict(self._site_run_counts),
             "last_run_at": {
                 k: v.isoformat() if v else None
@@ -364,6 +385,7 @@ class RoundManager:
             "site_metrics": {
                 site: dict(m) for site, m in self._site_metrics.items()
             },
+            "global_metrics":      dict(self._global_metrics),
         }
 
     @property

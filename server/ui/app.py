@@ -24,11 +24,13 @@ from server.ui.pages.global_model import GlobalModelPage
 from server.ui.pages.graphs       import GraphsPage
 from server.ui.pages.settings     import SettingsPage
 from server.ui.components.nav_rail import build_nav_rail
+from shared.utils.theme import LC
 
 
 def main(page: ft.Page) -> None:
     page.title      = "Viral FL - Server Dashboard"
-    page.theme_mode = ft.ThemeMode.DARK
+    page.theme_mode = ft.ThemeMode.LIGHT
+    page.bgcolor    = LC.BG_PRIMARY
     page.padding    = 0
 
     settings = get_settings()
@@ -73,14 +75,27 @@ def main(page: ft.Page) -> None:
                 try:
                     r = await client.get(poll_url, timeout=4.0)
                     if r.status_code == 200:
-                        data   = r.json()
-                        sites  = data.get("sites", {})
-                        mv     = data.get("model_version", 0)
-                        rid    = data.get("current_round_id", 0)
-                        n_done = len(data.get("participating_sites", []))
+                        data             = r.json()
+                        sites            = data.get("sites", {})
+                        mv               = data.get("model_version", 0)
+                        rid              = data.get("current_round_id", 0)
+                        round_status     = data.get("round_status", "idle")
+                        participating    = data.get("participating_sites", [])
+                        min_sites        = data.get("min_sites", 1)
+                        started_at       = data.get("round_started_at")
+                        completed_at     = data.get("round_completed_at")
+                        rounds_completed = data.get("rounds_completed", 0)
+                        global_metrics   = data.get("global_metrics", {})
 
                         dashboard.update_sites(sites)
-                        dashboard.timeline.update(rid, sites)
+                        dashboard.timeline.update(
+                            rid, sites,
+                            round_status=round_status,
+                            participating=participating,
+                            min_sites=min_sites,
+                            started_at=started_at,
+                            completed_at=completed_at,
+                        )
 
                         # Update run counts and last-run timestamps on all site cards
                         run_counts  = data.get("run_counts", {})
@@ -97,8 +112,12 @@ def main(page: ft.Page) -> None:
                             graphs_pg.update(site_metrics)
 
                         if mv != last_model_version:
-                            last_model_version = mv
-                            gm_page.update_tiles(mv, rid, n_done)
+                            last_model_version   = mv
+                            last_round_sites     = data.get("last_round_participating_sites", [])
+                            sites_last_round     = len(last_round_sites) if mv > 0 else 0
+                            gm_page.update_model_data(
+                                mv, rounds_completed, sites_last_round, global_metrics
+                            )
 
                         page.update()
                 except Exception as exc:

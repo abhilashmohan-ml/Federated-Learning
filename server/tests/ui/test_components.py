@@ -8,6 +8,7 @@ from server.ui.components.lrv_chart      import LRVChart, _SITES as _LRV_SITES, 
 from server.ui.components.metric_tile    import MetricTile
 from server.ui.components.nav_rail       import build_nav_rail
 from server.ui.components.round_timeline import RoundTimeline
+from shared.utils.theme import LC
 
 
 # ---------------------------------------------------------------------------
@@ -196,9 +197,9 @@ class TestLRVChart:
         assert isinstance(col.controls[1], ft.Container)  # chart container
         assert isinstance(col.controls[2], ft.Text)   # footnote
 
-    def test_build_footnote_color_grey_500(self) -> None:
+    def test_build_footnote_color_muted(self) -> None:
         col = LRVChart().build()
-        assert col.controls[2].color == ft.Colors.GREY_500
+        assert col.controls[2].color == LC.TEXT_MUTED
 
     def test_render_flux_ratio_png_returns_png_bytes(self) -> None:
         data = _render_flux_ratio_png({"site_1": {"flux_ratio": 0.5}})
@@ -232,13 +233,13 @@ class TestMetricTile:
     def test_build_returns_card(self) -> None:
         assert isinstance(MetricTile("Flux", "4.8", "LMH").build(), ft.Card)
 
-    def test_build_label_color_grey_400(self) -> None:
+    def test_build_label_color_muted(self) -> None:
         col = MetricTile("Flux", "4.8", "LMH").build().content.content
-        assert col.controls[0].color == ft.Colors.GREY_400
+        assert col.controls[0].color == LC.TEXT_MUTED
 
-    def test_build_unit_color_grey_600(self) -> None:
+    def test_build_unit_color_secondary(self) -> None:
         col = MetricTile("Flux", "4.8", "LMH").build().content.content
-        assert col.controls[2].color == ft.Colors.GREY_600
+        assert col.controls[2].color == LC.TEXT_SECONDARY
 
     def test_build_value_bold(self) -> None:
         col = MetricTile("Flux", "4.8", "LMH").build().content.content
@@ -289,19 +290,19 @@ class TestRoundTimeline:
     def test_init_defaults(self) -> None:
         rt = RoundTimeline()
         assert rt.total_rounds == 50
-        assert rt._progress.value == 0.0
+        assert rt._progress_bar.value == 0.0
 
-    def test_init_default_site_statuses_all_idle(self) -> None:
+    def test_init_default_chips_row_empty(self) -> None:
         rt = RoundTimeline()
         rt.build()
         assert rt._chips_row.controls == []
 
-    def test_init_custom(self) -> None:
+    def test_init_custom_progress_value(self) -> None:
         rt = RoundTimeline(total_rounds=30)
-        rt.update(10, {"site_1": "done"})
-        assert rt._progress.value == pytest.approx(10 / 30)
+        rt.update(10, {"alpha": "done"})
+        assert rt._progress_bar.value == pytest.approx(10 / 30)
 
-    def test_init_none_site_statuses_generates_defaults(self) -> None:
+    def test_init_custom_total_rounds(self) -> None:
         rt = RoundTimeline(total_rounds=100)
         assert rt.total_rounds == 100
 
@@ -320,26 +321,60 @@ class TestRoundTimeline:
         bar = next(c for c in col.controls if isinstance(c, ft.ProgressBar))
         assert bar.color == ft.Colors.BLUE
 
-    def test_build_chip_bgcolor_done_is_blue(self) -> None:
+    def test_build_chip_bgcolor_done_is_green(self) -> None:
         rt = RoundTimeline()
-        rt.update(1, {"site_1": "done"})
-        col = rt.build()
-        # status_chips Row is the last control (after header Row and ProgressBar)
-        chip_row = col.controls[2]
-        assert isinstance(chip_row, ft.Row)
-        assert chip_row.controls[0].bgcolor == ft.Colors.BLUE
+        rt.update(1, {"alpha": "done"})
+        rt.build()
+        assert rt._chips_row.controls[0].bgcolor == ft.Colors.GREEN
 
-    def test_build_chip_bgcolor_non_done_is_grey_800(self) -> None:
+    def test_build_chip_bgcolor_training_is_blue(self) -> None:
         rt = RoundTimeline()
-        rt.update(1, {"site_1": "training"})
-        col = rt.build()
-        chip_row = col.controls[2]
-        assert chip_row.controls[0].bgcolor == ft.Colors.GREY_800
+        rt.update(1, {"alpha": "training"})
+        rt.build()
+        assert rt._chips_row.controls[0].bgcolor == ft.Colors.BLUE
+
+    def test_build_chip_bgcolor_idle_is_surface_elevated(self) -> None:
+        rt = RoundTimeline()
+        rt.update(1, {"alpha": "idle"})
+        rt.build()
+        assert rt._chips_row.controls[0].bgcolor == LC.SURFACE_ELEVATED
 
     def test_build_total_rounds_zero_no_division_error(self) -> None:
-        # max(total_rounds, 1) guards against ZeroDivisionError
         rt = RoundTimeline(0)
         rt.update(0, {})
         col = rt.build()
         bar = next(c for c in col.controls if isinstance(c, ft.ProgressBar))
         assert bar.value == pytest.approx(0.0)
+
+    def test_update_status_badge_collecting(self) -> None:
+        rt = RoundTimeline()
+        rt.update(1, {}, round_status="collecting", min_sites=3,
+                  participating=["site_1"])
+        assert rt._status_badge.value == "COLLECTING"
+
+    def test_update_sites_text_collecting(self) -> None:
+        rt = RoundTimeline()
+        rt.update(1, {}, round_status="collecting", min_sites=3,
+                  participating=["alpha", "beta"])
+        assert "2 of 3" in rt._sites_text.value
+
+    def test_update_status_badge_complete(self) -> None:
+        rt = RoundTimeline()
+        rt.update(1, {}, round_status="complete", participating=["site_1"])
+        assert rt._status_badge.value == "COMPLETE"
+
+    def test_update_started_at_shown(self) -> None:
+        rt = RoundTimeline()
+        rt.update(1, {}, started_at="2026-08-18T10:00:00+00:00")
+        assert "10:00:00 UTC" in rt._started_text.value
+
+    def test_update_completed_at_shown(self) -> None:
+        rt = RoundTimeline()
+        rt.update(1, {}, completed_at="2026-08-18T10:05:30+00:00")
+        assert "10:05:30 UTC" in rt._completed_text.value
+
+    def test_update_no_timestamps_empty_strings(self) -> None:
+        rt = RoundTimeline()
+        rt.update(1, {})
+        assert rt._started_text.value == ""
+        assert rt._completed_text.value == ""

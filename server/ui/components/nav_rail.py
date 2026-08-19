@@ -2,12 +2,16 @@
 from typing import Callable
 import flet as ft
 
+from shared.utils.theme import LC
+
 
 def build_nav_rail(on_change: Callable) -> ft.NavigationRail:
     return ft.NavigationRail(
         selected_index=0,
         label_type=ft.NavigationRailLabelType.ALL,
         min_width=100,
+        bgcolor=LC.SURFACE,
+        indicator_color=LC.PRIMARY_LIGHT,
         destinations=[
             ft.NavigationRailDestination(icon=ft.Icons.DASHBOARD,      label="Dashboard"),
             ft.NavigationRailDestination(icon=ft.Icons.MONITOR,        label="Sites"),

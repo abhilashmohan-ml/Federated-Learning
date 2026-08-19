@@ -236,3 +236,27 @@ All 5 bugs fixed; 749 tests green; ruff and mypy --strict clean.
         * GraphsPage.build() cached to prevent Flet control re-attachment crash
         * dead FluxChart.update_flux() and duplicate _render_flux_png removed
         * tests added for auto-start logic, sync_site_phase, flux curve state write
+
+## UI — Liquid Carbon Design System (2026-08-19) — branch fix/manual-round-per-site
+
+Applied full Liquid Carbon light-theme design system to all Flet UI pages.
+
+  - [x] New: shared/utils/theme.py — LiquidCarbonTheme tokens + LC alias
+        Verbatim from D:\ViralFiltration\viral_filtration_flet_app.py (reference app)
+        Pure constants; no flet imports; no asset loading
+  - [x] Theme switch: ft.ThemeMode.DARK → LIGHT + page.bgcolor = LC.BG_PRIMARY (server + client)
+  - [x] Server components: site_card, metric_tile, round_timeline, nav_rail, flux_chart, lrv_chart
+        SITE_COLORS → LC.CHART_COLORS[:5]; matplotlib dark → LC light palette
+        Status semantic colors (BLUE/GREEN/RED/ORANGE/GREY) retained as ft.Colors.*
+  - [x] Server pages: dashboard, global_model, site_monitor, graphs, settings
+        All ft.Colors.GREY_* → LC.TEXT_MUTED / LC.TEXT_SECONDARY
+        ElevatedButton migrated to ft.Button with ft.ButtonStyle(bgcolor=LC.PRIMARY)
+        Dropdown/TextField: border_color, focused_border_color, bgcolor, label_style
+        Pages wrapped in ft.Container(bgcolor=LC.BG_PRIMARY)
+  - [x] Client pages: status, local_results
+        _PHASE_COLORS idle → LC.TEXT_MUTED; button style → LC.PRIMARY
+        J(t) matplotlib chart → LC light palette
+        Chart container bgcolor → LC.ACCENT_LIGHT
+  - [x] Tests: 567 green; color assertions updated to LC token values
+  - [x] MCP: .mcp.json configured with figma-developer-mcp (FIGMA_API_KEY env var)
+  - [x] CLAUDE.md: UI Design System section added (tokens, rules, MCP access)

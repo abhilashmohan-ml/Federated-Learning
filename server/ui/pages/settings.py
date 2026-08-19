@@ -2,12 +2,12 @@
 import flet as ft
 
 from server.config import get_settings
+from shared.utils.theme import LC
 
 
 class SettingsPage:
     def __init__(self, page: ft.Page) -> None:
         self.page = page
-        # UI refs set in build() — call build() before accessing them
         self._mode_radio:      ft.RadioGroup | None = None
         self._quorum_field:    ft.TextField  | None = None
         self._window_field:    ft.TextField  | None = None
@@ -35,7 +35,7 @@ class SettingsPage:
                 payload["time_window_seconds"] = str(int(minutes * 60))
             except ValueError:
                 self._policy_status.value = "Invalid window value"
-                self._policy_status.color = ft.Colors.RED
+                self._policy_status.color = LC.ERROR
                 self.page.update()
                 return
 
@@ -44,20 +44,30 @@ class SettingsPage:
                 r = await client.put(f"{api_base}/settings", json=payload, timeout=5.0)
             if r.status_code == 200:
                 self._policy_status.value = "Settings applied."
-                self._policy_status.color = ft.Colors.GREEN
+                self._policy_status.color = LC.SUCCESS
             else:
                 self._policy_status.value = f"Error {r.status_code}"
-                self._policy_status.color = ft.Colors.RED
+                self._policy_status.color = LC.ERROR
         except Exception as exc:
             self._policy_status.value = f"Request failed: {exc}"
-            self._policy_status.color = ft.Colors.RED
+            self._policy_status.color = LC.ERROR
         self.page.update()
+
+    def _field(self, label: str, value: str, width: int = 180) -> ft.TextField:
+        return ft.TextField(
+            label=label, value=value, width=width,
+            border_color=LC.BORDER,
+            focused_border_color=LC.PRIMARY,
+            bgcolor=LC.SURFACE,
+            color=LC.TEXT_PRIMARY,
+            label_style=ft.TextStyle(color=LC.TEXT_MUTED),
+            border_radius=LC.RADIUS_MD,
+        )
 
     def build(self) -> ft.Control:
         settings = get_settings()
         api_base = f"http://localhost:{settings.port}"
 
-        # ── Aggregation policy controls ────────────────────────────────────────
         self._mode_radio = ft.RadioGroup(
             value="quorum",
             content=ft.Row([
@@ -66,54 +76,64 @@ class SettingsPage:
             ]),
             on_change=self._on_mode_change,
         )
-        self._quorum_field    = ft.TextField(label="Min sites required",            value="3",  width=200)
-        self._window_field    = ft.TextField(label="Window (minutes)",              value="30", width=200, visible=False)
-        self._heartbeat_field = ft.TextField(label="Heartbeat interval (seconds)",  value="30", width=220)
-        self._policy_status   = ft.Text("", size=12, color=ft.Colors.GREEN)
+        self._quorum_field    = self._field("Min sites required",           "3",  200)
+        self._window_field    = self._field("Window (minutes)",             "30", 200)
+        self._window_field.visible = False
+        self._heartbeat_field = self._field("Heartbeat interval (seconds)", "30", 220)
+        self._policy_status   = ft.Text("", size=12, color=LC.SUCCESS)
 
-        return ft.Column([
-            ft.Text("Settings", size=26, weight=ft.FontWeight.BOLD),
-            ft.Divider(),
+        return ft.Container(
+            content=ft.Column([
+                ft.Text("Settings", size=26, weight=ft.FontWeight.BOLD,
+                        color=LC.TEXT_PRIMARY),
+                ft.Divider(color=LC.BORDER),
 
-            # ── Existing hyperparameter section ───────────────────────────────
-            ft.Text("FL Hyperparameters", size=17),
-            ft.Row([
-                ft.TextField(label="FL Rounds",       value="50",   width=180),
-                ft.TextField(label="Local Epochs",    value="5",    width=180),
-                ft.TextField(label="FedProx Mu",      value="0.01", width=180),
-                ft.TextField(label="DP Noise Sigma",  value="0.01", width=180),
-                ft.TextField(label="Min Sites/Round", value="3",    width=180),
-            ], spacing=12, wrap=True),
-            ft.ElevatedButton("Save Hyperparameters", icon=ft.Icons.SAVE),
-            ft.Divider(),
+                ft.Text("FL Hyperparameters", size=17, color=LC.TEXT_PRIMARY),
+                ft.Row([
+                    self._field("FL Rounds",       "50"),
+                    self._field("Local Epochs",    "5"),
+                    self._field("FedProx Mu",      "0.01"),
+                    self._field("DP Noise Sigma",  "0.01"),
+                    self._field("Min Sites/Round", "3"),
+                ], spacing=12, wrap=True),
+                ft.Button(
+                    "Save Hyperparameters",
+                    icon=ft.Icons.SAVE,
+                    style=ft.ButtonStyle(bgcolor=LC.PRIMARY, color=LC.SURFACE),
+                ),
+                ft.Divider(color=LC.BORDER),
 
-            # ── Aggregation policy ────────────────────────────────────────────
-            ft.Text("Aggregation Policy", size=17),
-            ft.Text(
-                "Quorum: aggregate when N distinct sites have submitted. "
-                "Time Window: aggregate when the configured time has elapsed.",
-                size=12, color=ft.Colors.GREY_400,
-            ),
-            self._mode_radio,
-            ft.Row([self._quorum_field, self._window_field], spacing=12),
-            ft.Divider(),
+                ft.Text("Aggregation Policy", size=17, color=LC.TEXT_PRIMARY),
+                ft.Text(
+                    "Quorum: aggregate when N distinct sites have submitted. "
+                    "Time Window: aggregate when the configured time has elapsed.",
+                    size=12, color=LC.TEXT_SECONDARY,
+                ),
+                self._mode_radio,
+                ft.Row([self._quorum_field, self._window_field], spacing=12),
+                ft.Divider(color=LC.BORDER),
 
-            ft.Text("Heartbeat Poller", size=17),
-            self._heartbeat_field,
-            ft.Divider(),
+                ft.Text("Heartbeat Poller", size=17, color=LC.TEXT_PRIMARY),
+                self._heartbeat_field,
+                ft.Divider(color=LC.BORDER),
 
-            ft.ElevatedButton(
-                "Apply Policy & Heartbeat",
-                icon=ft.Icons.SAVE,
-                on_click=lambda _: self.page.run_task(self._apply_settings, api_base),
-            ),
-            self._policy_status,
+                ft.Button(
+                    "Apply Policy & Heartbeat",
+                    icon=ft.Icons.SAVE,
+                    style=ft.ButtonStyle(bgcolor=LC.PRIMARY, color=LC.SURFACE),
+                    on_click=lambda _: self.page.run_task(self._apply_settings, api_base),
+                ),
+                self._policy_status,
 
-            ft.Divider(),
-            ft.Text("Registered Sites", size=17),
-            ft.Text(
-                "Sites are registered via the REGISTERED_SITES environment variable at startup. "
-                "See .env.example for configuration.",
-                size=12, color=ft.Colors.GREY_400,
-            ),
-        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16)
+                ft.Divider(color=LC.BORDER),
+                ft.Text("Registered Sites", size=17, color=LC.TEXT_PRIMARY),
+                ft.Text(
+                    "Sites are registered via the REGISTERED_SITES environment variable at startup. "
+                    "See .env.example for configuration.",
+                    size=12, color=LC.TEXT_SECONDARY,
+                ),
+            ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16),
+            padding=24,
+            expand=True,
+            bgcolor=LC.BG_PRIMARY,
+        )
