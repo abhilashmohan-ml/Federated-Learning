@@ -313,3 +313,20 @@ class TestFLClientIntegration:
     def test_status_page_receives_fl_client(self) -> None:
         _, mock_fl, _, MockStatus = _run_main_full()
         assert MockStatus.call_args.kwargs.get("fl_client") is mock_fl
+
+    def test_injection_skips_constructor_and_auth(self) -> None:
+        """When fl_client is injected, FLClient() is never constructed and authenticate() is never called."""
+        page = _mock_page()
+        mock_fl = MagicMock()
+        page.add.side_effect = lambda *args: None
+        with (
+            patch("client.ui.app.get_client_settings", return_value=_mock_settings()),
+            patch("client.ui.app.FLClient") as MockFLC,
+            patch("client.ui.app.StatusPage") as MockStatus,
+            patch("client.ui.app.LocalResultsPage") as MockResults,
+        ):
+            MockStatus.return_value.build.return_value = ft.Column()
+            MockResults.return_value.build.return_value = ft.Column()
+            main(page, fl_client=mock_fl)
+        MockFLC.assert_not_called()
+        mock_fl.authenticate.assert_not_called()

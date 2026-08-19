@@ -16,15 +16,18 @@ from client.ui.pages.status import StatusPage
 from shared.utils.theme import LC
 
 
-def main(page: ft.Page) -> None:
+def main(page: ft.Page, fl_client: FLClient | None = None) -> None:
     settings = get_client_settings()
     page.title      = f"Viral FL Client - {settings.site_id}"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.bgcolor    = LC.BG_PRIMARY
     page.padding    = 20
 
-    fl = FLClient()
-    fl.authenticate()
+    if fl_client is None:
+        log.warning("fl_client_not_injected", reason="FLClient created inside flet_main — browser reconnect will re-authenticate")
+        fl_client = FLClient()
+        fl_client.authenticate()
+    fl = fl_client
 
     status_pg  = StatusPage(page, fl_client=fl)
     results_pg = LocalResultsPage(page)

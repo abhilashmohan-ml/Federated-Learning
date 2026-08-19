@@ -19,14 +19,6 @@ POLL_SECONDS = 15   # dev mode: how often to check server for new round
 
 def _watch_dev(fl: FLClient, trainer: LocalTrainer) -> None:
     """Dev mode: poll server for server-initiated rounds, train with fresh simulated data."""
-    while True:
-        try:
-            fl.authenticate()
-            break
-        except Exception as exc:
-            log.warning("auth_retry", error=str(exc))
-            time.sleep(POLL_SECONDS)
-
     last_seen_round = 0
 
     while True:
@@ -73,14 +65,6 @@ def _watch_prod(
     """Prod mode: poll data directory; push update to server when new CSVs arrive."""
     while True:
         try:
-            fl.authenticate()
-            break
-        except Exception as exc:
-            log.warning("auth_retry", error=str(exc))
-            time.sleep(poll_seconds)
-
-    while True:
-        try:
             if prod_source.has_new_data():
                 update_state(phase="training")
                 current_round = fl.get_current_round()
@@ -109,7 +93,7 @@ def _watch_prod(
         time.sleep(poll_seconds)
 
 
-def start_scheduler(data_source: DataSource) -> None:
+def start_scheduler(data_source: DataSource, fl_client: FLClient) -> None:
     """
     Start the appropriate scheduler thread based on data source type.
 
@@ -120,7 +104,7 @@ def start_scheduler(data_source: DataSource) -> None:
     """
     from client.config import get_client_settings
     settings = get_client_settings()
-    fl       = FLClient()
+    fl       = fl_client
     trainer  = LocalTrainer(data_source=data_source)
 
     if isinstance(data_source, ProdDataSource):

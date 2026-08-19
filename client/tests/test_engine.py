@@ -225,11 +225,8 @@ class TestLocalTrainer:
 class TestWatchDev:
     """Tests for the dev-mode scheduler loop."""
 
-    def _mock_fl(self, auth_raises: bool = False) -> MagicMock:
-        fl = MagicMock()
-        if auth_raises:
-            fl.authenticate.side_effect = Exception("auth failed")
-        return fl
+    def _mock_fl(self) -> MagicMock:
+        return MagicMock()
 
     def _mock_update(
         self, flux_ratio: float = 0.88, amin: float = 0.04, model: str = "combined_1a"
@@ -238,16 +235,6 @@ class TestWatchDev:
         u.local_metrics = {"flux_ratio": flux_ratio, "amin_m2": amin}
         u.hermia_best_model = model
         return u
-
-    def test_auth_retries_on_failure(self) -> None:
-        """Auth failure enters retry loop; upload never called while auth keeps failing."""
-        fl = self._mock_fl(auth_raises=True)
-        mock_trainer = MagicMock()
-        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration):
-            with pytest.raises(StopIteration):
-                _watch_dev(fl, mock_trainer)
-        fl.upload_update.assert_not_called()
-        mock_trainer.train_and_prepare_update.assert_not_called()
 
     def test_none_response_no_training(self) -> None:
         """get_round_status returns None (404/not-yet-existing) → no training."""
@@ -388,11 +375,8 @@ class TestWatchDev:
 class TestWatchProd:
     """Tests for the prod-mode scheduler loop."""
 
-    def _mock_fl(self, auth_raises: bool = False) -> MagicMock:
-        fl = MagicMock()
-        if auth_raises:
-            fl.authenticate.side_effect = Exception("auth failed")
-        return fl
+    def _mock_fl(self) -> MagicMock:
+        return MagicMock()
 
     def _mock_prod_source(self, has_new: bool = False) -> MagicMock:
         ps = MagicMock()
@@ -411,16 +395,6 @@ class TestWatchProd:
         u.local_metrics = {"flux_ratio": flux_ratio, "amin_m2": amin}
         u.hermia_best_model = model
         return u
-
-    def test_auth_retries_on_failure(self) -> None:
-        """Auth failure enters retry loop; training never called while auth keeps failing."""
-        fl = self._mock_fl(auth_raises=True)
-        mock_trainer = MagicMock()
-        ps = self._mock_prod_source()
-        with patch("client.engine.scheduler.time.sleep", side_effect=StopIteration):
-            with pytest.raises(StopIteration):
-                _watch_prod(fl, mock_trainer, ps, 30)
-        mock_trainer.train_and_prepare_update.assert_not_called()
 
     def test_no_new_data_skips_training(self) -> None:
         fl = self._mock_fl()
@@ -530,14 +504,14 @@ class TestStartScheduler:
         from client.engine.data_source import DevDataSource, PHYSICS_DEFAULTS
         ds = DevDataSource(PHYSICS_DEFAULTS)
         mock_thread = MagicMock()
+        mock_fl = MagicMock()
         settings = self._mock_settings()
 
         with patch("client.engine.scheduler.threading.Thread",
                    return_value=mock_thread) as mock_cls, \
-             patch("client.engine.scheduler.FLClient"), \
              patch("client.engine.scheduler.LocalTrainer"), \
              patch("client.config.get_client_settings", return_value=settings):
-            start_scheduler(ds)
+            start_scheduler(ds, fl_client=mock_fl)
 
         call_kwargs = mock_cls.call_args.kwargs
         assert call_kwargs["name"] == "fl-scheduler-dev"
@@ -548,14 +522,14 @@ class TestStartScheduler:
         from client.engine.data_source import ProdDataSource
         ds = ProdDataSource(str(tmp_path))
         mock_thread = MagicMock()
+        mock_fl = MagicMock()
         settings = self._mock_settings()
 
         with patch("client.engine.scheduler.threading.Thread",
                    return_value=mock_thread) as mock_cls, \
-             patch("client.engine.scheduler.FLClient"), \
              patch("client.engine.scheduler.LocalTrainer"), \
              patch("client.config.get_client_settings", return_value=settings):
-            start_scheduler(ds)
+            start_scheduler(ds, fl_client=mock_fl)
 
         call_kwargs = mock_cls.call_args.kwargs
         assert call_kwargs["name"] == "fl-scheduler-prod"
@@ -567,56 +541,52 @@ class TestStartScheduler:
         from client.engine.data_source import DevDataSource, PHYSICS_DEFAULTS
         ds = DevDataSource(PHYSICS_DEFAULTS)
         mock_thread = MagicMock()
+        mock_fl = MagicMock()
         settings = self._mock_settings()
 
         with patch("client.engine.scheduler.threading.Thread",
                    return_value=mock_thread) as mock_cls, \
-             patch("client.engine.scheduler.FLClient") as mock_fl_cls, \
              patch("client.engine.scheduler.LocalTrainer") as mock_trainer_cls, \
              patch("client.engine.scheduler._watch_dev") as mock_watch, \
              patch("client.config.get_client_settings", return_value=settings):
-            start_scheduler(ds)
+            start_scheduler(ds, fl_client=mock_fl)
             target = mock_cls.call_args.kwargs["target"]
             target()
 
-        mock_watch.assert_called_once_with(
-            mock_fl_cls.return_value, mock_trainer_cls.return_value
-        )
+        mock_watch.assert_called_once_with(mock_fl, mock_trainer_cls.return_value)
 
     def test_prod_lambda_body_calls_watch_prod(self, tmp_path) -> None:
         """Cover the lambda body: lambda: _watch_prod(fl, trainer, data_source, poll_seconds)."""
         from client.engine.data_source import ProdDataSource
         ds = ProdDataSource(str(tmp_path))
         mock_thread = MagicMock()
+        mock_fl = MagicMock()
         settings = self._mock_settings()
 
         with patch("client.engine.scheduler.threading.Thread",
                    return_value=mock_thread) as mock_cls, \
-             patch("client.engine.scheduler.FLClient") as mock_fl_cls, \
              patch("client.engine.scheduler.LocalTrainer") as mock_trainer_cls, \
              patch("client.engine.scheduler._watch_prod") as mock_watch, \
              patch("client.config.get_client_settings", return_value=settings):
-            start_scheduler(ds)
+            start_scheduler(ds, fl_client=mock_fl)
             target = mock_cls.call_args.kwargs["target"]
             target()
 
-        mock_watch.assert_called_once_with(
-            mock_fl_cls.return_value, mock_trainer_cls.return_value, ds, 60
-        )
+        mock_watch.assert_called_once_with(mock_fl, mock_trainer_cls.return_value, ds, 60)
 
     def test_prod_mode_auto_schedule_false_still_spawns_thread(self, tmp_path) -> None:
         """auto_schedule=False must NOT suppress the prod-mode scheduler."""
         from client.engine.data_source import ProdDataSource
         ds = ProdDataSource(str(tmp_path))
         mock_thread = MagicMock()
+        mock_fl = MagicMock()
         settings = self._mock_settings(auto_schedule=False)
 
         with patch("client.engine.scheduler.threading.Thread",
                    return_value=mock_thread) as mock_cls, \
-             patch("client.engine.scheduler.FLClient"), \
              patch("client.engine.scheduler.LocalTrainer"), \
              patch("client.config.get_client_settings", return_value=settings):
-            start_scheduler(ds)
+            start_scheduler(ds, fl_client=mock_fl)
 
         mock_cls.assert_called_once()
         call_kwargs = mock_cls.call_args.kwargs
@@ -627,13 +597,13 @@ class TestStartScheduler:
         """auto_schedule=False in dev mode must NOT spawn a scheduler thread."""
         from client.engine.data_source import DevDataSource, PHYSICS_DEFAULTS
         ds = DevDataSource(PHYSICS_DEFAULTS)
+        mock_fl = MagicMock()
         settings = self._mock_settings(auto_schedule=False)
 
         with patch("client.engine.scheduler.threading.Thread") as mock_thread_cls, \
-             patch("client.engine.scheduler.FLClient"), \
              patch("client.engine.scheduler.LocalTrainer"), \
              patch("client.config.get_client_settings", return_value=settings):
-            start_scheduler(ds)
+            start_scheduler(ds, fl_client=mock_fl)
 
         mock_thread_cls.assert_not_called()
 

@@ -237,6 +237,25 @@ All 5 bugs fixed; 749 tests green; ruff and mypy --strict clean.
         * dead FluxChart.update_flux() and duplicate _render_flux_png removed
         * tests added for auto-start logic, sync_site_phase, flux curve state write
 
+## Bug Fixes — Startup & Duplicate FLClient (2026-08-19) — branch fix/manual-round-per-site
+
+  - [x] fix(startup): 401 Unauthorized on all clients — site_registry DB was empty;
+        startup scripts now auto-run init_db.py (idempotent) before any window opens;
+        REGISTERED_SITES built dynamically from SITE_N_SECRET values in .env;
+        both PS1 scripts patched — commit fcf0809
+
+  - [x] fix(client): duplicate FLClient instances per site process — FLClient was created
+        in both flet_main (called per browser reconnect) and start_scheduler (second instance).
+        Fix: single FLClient created and authenticated in __main__ before thread start;
+        shared via closure to flet_main (lambda page: flet_main(page, fl)) and explicit
+        fl_client param to start_scheduler(data_source, fl_client).
+        Thread safety: threading.Lock added to FLClient._token_lock for double-check
+        pattern in _do_refresh — prevents double-consumption of single-use refresh tokens.
+        Auth retry loops removed from _watch_dev/_watch_prod (now pre-authenticated);
+        startup retry loop added in __main__ (handles Docker Compose server-not-ready race).
+        232 tests green, 100% coverage on client/engine/scheduler.py, client/main.py,
+        client/comms/fl_client.py — branch fix/manual-round-per-site
+
 ## UI — Liquid Carbon Design System (2026-08-19) — branch fix/manual-round-per-site
 
 Applied full Liquid Carbon light-theme design system to all Flet UI pages.

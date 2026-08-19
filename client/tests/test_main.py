@@ -77,6 +77,7 @@ class TestBackground:
 
         mock_cfg = self._mock_cfg(dev_mode=True)
         mock_ds = MagicMock()
+        mock_fl = MagicMock()
 
         with (
             patch("client.main.start_heartbeat") as mock_hb,
@@ -85,7 +86,7 @@ class TestBackground:
             patch("client.main.get_client_settings", return_value=mock_cfg),
             patch("client.main.DevDataSource", return_value=mock_ds) as mock_dev_cls,
         ):
-            client.main._background()
+            client.main._background(mock_fl)
 
         mock_hb.assert_called_once_with()
         mock_dev_cls.assert_called_once_with(
@@ -96,7 +97,7 @@ class TestBackground:
             jitter=0.05,
         )
         mock_status.assert_called_once_with(9001)
-        mock_sched.assert_called_once_with(data_source=mock_ds)
+        mock_sched.assert_called_once_with(data_source=mock_ds, fl_client=mock_fl)
 
     def test_prod_mode_creates_prod_data_source_and_starts_services(self) -> None:
         """dev_mode=False: ProdDataSource constructed with data_dir; services started."""
@@ -105,6 +106,7 @@ class TestBackground:
         mock_cfg = self._mock_cfg(dev_mode=False)
         mock_cfg.local_data_path = "data/site_1/filtration.csv"
         mock_ds = MagicMock()
+        mock_fl = MagicMock()
 
         with (
             patch("client.main.start_heartbeat"),
@@ -113,7 +115,7 @@ class TestBackground:
             patch("client.main.get_client_settings", return_value=mock_cfg),
             patch("client.main.ProdDataSource", return_value=mock_ds) as mock_prod_cls,
         ):
-            client.main._background()
+            client.main._background(mock_fl)
 
         # data_dir should be "data/site_1" (dirname of the local_data_path)
         mock_prod_cls.assert_called_once_with("data/site_1")
@@ -126,6 +128,7 @@ class TestBackground:
         mock_cfg.local_data_path = "filtration.csv"   # no directory component
         mock_cfg.site_id = "singapore"
         mock_ds = MagicMock()
+        mock_fl = MagicMock()
 
         with (
             patch("client.main.start_heartbeat"),
@@ -134,7 +137,7 @@ class TestBackground:
             patch("client.main.get_client_settings", return_value=mock_cfg),
             patch("client.main.ProdDataSource", return_value=mock_ds) as mock_prod_cls,
         ):
-            client.main._background()
+            client.main._background(mock_fl)
 
         mock_prod_cls.assert_called_once_with("data/singapore")
 
@@ -146,21 +149,28 @@ class TestMainBlock:
     """if __name__ == '__main__': block creates a daemon thread and launches Flet."""
 
     def test_thread_created_with_daemon_flag_and_flet_run_called(self) -> None:
-        """__main__ block: daemon Thread started; ft.run called with correct args."""
+        """__main__ block: FLClient created+authenticated; daemon Thread started; ft.run called."""
         mock_settings = MagicMock()
         mock_settings.flet_client_port = 8551
+        mock_fl_instance = MagicMock()
 
         with patch("shared.utils.logging_config.configure_logging"), patch(
             "client.config.get_client_settings", return_value=mock_settings
         ), patch("threading.Thread") as mock_thread, patch(
             "flet.run"
-        ) as mock_ft_run:
+        ) as mock_ft_run, patch(
+            "client.comms.fl_client.FLClient", return_value=mock_fl_instance
+        ) as mock_fl_cls:
 
             mock_thread_instance = MagicMock()
             mock_thread.return_value = mock_thread_instance
 
             # Execute client/main.py as __main__ — only the guarded block runs.
             runpy.run_path(_MAIN_PATH, run_name="__main__")
+
+        # FLClient must be instantiated exactly once and authenticated
+        mock_fl_cls.assert_called_once_with()
+        mock_fl_instance.authenticate.assert_called_once_with()
 
         # threading.Thread must be called with daemon=True
         thread_kwargs = mock_thread.call_args.kwargs
@@ -180,3 +190,48 @@ class TestMainBlock:
         assert ft_kwargs.get("view") == ft.AppView.WEB_BROWSER, (
             "Expected view=ft.AppView.WEB_BROWSER"
         )
+
+    def test_authenticate_retries_on_transient_failure(self) -> None:
+        """Startup retry loop: if authenticate() raises, sleep and retry until it succeeds."""
+        mock_settings = MagicMock()
+        mock_settings.flet_client_port = 8551
+        mock_fl_instance = MagicMock()
+        mock_fl_instance.authenticate.side_effect = [Exception("server not ready"), None]
+
+        with patch("shared.utils.logging_config.configure_logging"), patch(
+            "client.config.get_client_settings", return_value=mock_settings
+        ), patch("threading.Thread"), patch("flet.run"), patch(
+            "time.sleep"
+        ) as mock_sleep, patch(
+            "client.comms.fl_client.FLClient", return_value=mock_fl_instance
+        ):
+            runpy.run_path(_MAIN_PATH, run_name="__main__")
+
+        assert mock_fl_instance.authenticate.call_count == 2
+        mock_sleep.assert_called_once_with(5.0)
+
+    def test_flet_run_target_passes_fl_to_flet_main(self) -> None:
+        """The lambda passed to ft.run must forward the shared fl instance to flet_main."""
+        mock_settings = MagicMock()
+        mock_settings.flet_client_port = 8551
+        mock_fl_instance = MagicMock()
+
+        with patch("shared.utils.logging_config.configure_logging"), patch(
+            "client.config.get_client_settings", return_value=mock_settings
+        ), patch("threading.Thread"), patch(
+            "flet.run"
+        ) as mock_ft_run, patch(
+            "client.comms.fl_client.FLClient", return_value=mock_fl_instance
+        ), patch(
+            "client.ui.app.main"
+        ) as mock_flet_main:
+            runpy.run_path(_MAIN_PATH, run_name="__main__")
+
+        # The first positional arg must be a callable (the closure lambda)
+        run_target = mock_ft_run.call_args.args[0]
+        assert callable(run_target), "ft.run first arg must be callable"
+
+        # Calling the lambda must forward (page, fl) to flet_main
+        mock_page = MagicMock()
+        run_target(mock_page)
+        mock_flet_main.assert_called_once_with(mock_page, mock_fl_instance)

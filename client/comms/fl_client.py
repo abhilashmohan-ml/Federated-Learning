@@ -64,6 +64,7 @@ PYTHON CONCEPT: tuple[type[Exception], ...]
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any
 
@@ -99,6 +100,9 @@ class FLClient:
         # Tokens start empty — call authenticate() before any FL operations
         self._access_token = ""
         self._refresh_token = ""
+        # Serialises concurrent authenticate() / _do_refresh() calls so that two
+        # threads sharing one FLClient never double-consume a single-use refresh token.
+        self._token_lock = threading.Lock()
 
         # Create a persistent httpx.Client with a connection pool.
         # verify=settings.verify_ssl controls SSL certificate verification.
@@ -210,8 +214,9 @@ class FLClient:
         )
         resp.raise_for_status()  # raises httpx.HTTPStatusError on 4xx/5xx
         tokens = TokenResponse(**resp.json())
-        self._access_token = tokens.access_token
-        self._refresh_token = tokens.refresh_token
+        with self._token_lock:
+            self._access_token = tokens.access_token
+            self._refresh_token = tokens.refresh_token
         log.info("authenticated", site=self.settings.site_id)
 
     def upload_update(self, update: ModelUpdate) -> None:
@@ -348,14 +353,28 @@ class FLClient:
           4. Store the new tokens
 
         After this call, the old refresh token is permanently invalidated.
+
+        THREAD SAFETY
+        -------------
+        The double-check pattern here prevents two threads that both hit a 401
+        from both consuming the same single-use refresh token:
+          - Thread A and Thread B both read the 401 response and call _do_refresh()
+          - Thread A acquires the lock first and rotates the tokens
+          - Thread B acquires the lock, sees _refresh_token changed → skips (A already refreshed)
+          - Thread B retries its original request with the new access token from A
         """
-        resp = self._request(
-            "POST",
-            f"{self.settings.server_url}/auth/refresh",
-            json=RefreshRequest(refresh_token=self._refresh_token).model_dump(),
-        )
-        resp.raise_for_status()
-        tokens = TokenResponse(**resp.json())
-        self._access_token = tokens.access_token
-        self._refresh_token = tokens.refresh_token
+        stale_rt = self._refresh_token  # snapshot before acquiring the lock
+        with self._token_lock:
+            if self._refresh_token != stale_rt:
+                # Another thread already refreshed — our access token is now fresh.
+                return
+            resp = self._request(
+                "POST",
+                f"{self.settings.server_url}/auth/refresh",
+                json=RefreshRequest(refresh_token=self._refresh_token).model_dump(),
+            )
+            resp.raise_for_status()
+            tokens = TokenResponse(**resp.json())
+            self._access_token = tokens.access_token
+            self._refresh_token = tokens.refresh_token
         log.info("token_refreshed", site=self.settings.site_id)

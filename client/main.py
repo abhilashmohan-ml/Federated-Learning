@@ -45,23 +45,26 @@ PYTHON CONCEPT: `if __name__ == "__main__":`
   the startup code from running on import.
 """
 import os
+import time
 import threading      # standard library: create concurrent threads
 import flet as ft     # Flet: Python framework for building web/desktop UI
 
 from client.ui.app          import main as flet_main   # Flet page builder function
+from client.comms.fl_client import FLClient             # authenticated FL session
 from client.comms.heartbeat import start_heartbeat      # starts the ping thread
 from client.comms.status_server import start_status_server  # per-site status HTTP server
 from client.engine.data_source import DevDataSource, ProdDataSource
 from client.engine.scheduler import start_scheduler     # starts the round-watcher thread
 from client.config           import get_client_settings
-from shared.utils.logging_config import configure_logging
+from shared.utils.logging_config import configure_logging, get_logger
 
 # Configure structured JSON logging before any logger is used
 configure_logging()
+log = get_logger(__name__)
 settings = get_client_settings()
 
 
-def _background() -> None:
+def _background(fl: FLClient) -> None:
     """
     Start all background service threads.
 
@@ -92,23 +95,37 @@ def _background() -> None:
         data_source = ProdDataSource(data_dir)
 
     start_status_server(cfg.client_status_port)
-    start_scheduler(data_source=data_source)   # data_source wired through in Task 5
+    start_scheduler(data_source=data_source, fl_client=fl)
 
 
 if __name__ == "__main__":
+    # Authenticate once — shared by the background scheduler and all Flet page sessions.
+    # Creating FLClient inside flet_main or start_scheduler would cause a new
+    # auth handshake on every browser reconnect, producing duplicate site instances.
+    fl = FLClient()
+    _auth_delay = 5.0
+    while True:
+        try:
+            fl.authenticate()
+            break
+        except Exception as exc:
+            log.warning("auth_retry_startup", error=str(exc), retry_in=_auth_delay)
+            time.sleep(_auth_delay)
+            _auth_delay = min(_auth_delay * 2, 60.0)
+
     # Start background services in a daemon thread.
     # We use a thread here rather than calling _background() directly
     # because start_scheduler() eventually blocks in a polling loop,
     # and we need ft.app() to run on the main thread (Flet requirement).
-    threading.Thread(target=_background, daemon=True).start()
+    threading.Thread(target=_background, args=(fl,), daemon=True).start()
 
     # Launch the Flet web interface.
-    # - flet_main: the function that builds the UI page
+    # - closure passes the shared fl instance so flet_main never re-authenticates
     # - port: the HTTP port the browser connects to (8551-8555 per site)
     # - view=WEB_BROWSER: serve as a web app (not a desktop window)
     # This call BLOCKS until the Flet server shuts down.
     ft.run(
-        flet_main,
+        lambda page: flet_main(page, fl),
         port=settings.flet_client_port,
         view=ft.AppView.WEB_BROWSER,
     )

@@ -491,6 +491,27 @@ class TestDoRefresh:
         body = mock_req.call_args.kwargs["json"]
         assert body["refresh_token"] == "curr_ref_tok"
 
+    def test_skips_when_token_already_rotated_by_other_thread(self) -> None:
+        """Double-check: if _refresh_token changes before the lock, skip the HTTP call.
+
+        Simulates the race where thread A rotates the token while thread B is
+        still between the stale-snapshot and the lock acquisition.
+        """
+        fl = _build_fl_client()
+        fl._refresh_token = "stale"
+
+        class _RotateOnEnter:
+            """Fake lock that changes _refresh_token just before the critical section."""
+            def __enter__(self_inner):  # noqa: N805
+                fl._refresh_token = "already_rotated"
+                return self_inner
+            def __exit__(self_inner, *_):  # noqa: N805
+                pass
+
+        fl._token_lock = _RotateOnEnter()
+        fl._do_refresh()  # must return early without issuing any HTTP request
+        fl._http.request.assert_not_called()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # heartbeat — INTERVAL constant
