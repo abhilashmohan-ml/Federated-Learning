@@ -50,12 +50,13 @@ $siteSecrets = @{
 
 # -- Initialise DB and register sites (idempotent — safe on every start) ----
 Write-Host "Initialising database..." -ForegroundColor Yellow
-$env:REGISTERED_SITES  = $envVars["REGISTERED_SITES"]
+# Build REGISTERED_SITES from per-site secrets already in .env
+$env:REGISTERED_SITES  = "site_1:$($siteSecrets['site_1']),site_2:$($siteSecrets['site_2']),site_3:$($siteSecrets['site_3']),site_4:$($siteSecrets['site_4']),site_5:$($siteSecrets['site_5'])"
 $env:SERVER_DB_URL     = $envVars["SERVER_DB_URL"]
 $env:SERVER_SECRET_KEY = $envVars["SERVER_SECRET_KEY"]
 & "$root\.venv\Scripts\python.exe" scripts/init_db.py
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: init_db.py failed. Verify REGISTERED_SITES in .env." -ForegroundColor Red
+    Write-Host "ERROR: init_db.py failed. Check SITE_N_SECRET values in .env." -ForegroundColor Red
     exit 1
 }
 Write-Host "  DB ready." -ForegroundColor Green
