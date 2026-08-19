@@ -520,9 +520,10 @@ class TestWatchProd:
 class TestStartScheduler:
     """Tests for start_scheduler() — thread creation and lambda coverage."""
 
-    def _mock_settings(self) -> MagicMock:
+    def _mock_settings(self, auto_schedule: bool = True) -> MagicMock:
         s = MagicMock()
         s.data_poll_seconds = 60
+        s.auto_schedule = auto_schedule
         return s
 
     def test_dev_mode_spawns_dev_thread(self) -> None:
@@ -602,6 +603,39 @@ class TestStartScheduler:
         mock_watch.assert_called_once_with(
             mock_fl_cls.return_value, mock_trainer_cls.return_value, ds, 60
         )
+
+    def test_prod_mode_auto_schedule_false_still_spawns_thread(self, tmp_path) -> None:
+        """auto_schedule=False must NOT suppress the prod-mode scheduler."""
+        from client.engine.data_source import ProdDataSource
+        ds = ProdDataSource(str(tmp_path))
+        mock_thread = MagicMock()
+        settings = self._mock_settings(auto_schedule=False)
+
+        with patch("client.engine.scheduler.threading.Thread",
+                   return_value=mock_thread) as mock_cls, \
+             patch("client.engine.scheduler.FLClient"), \
+             patch("client.engine.scheduler.LocalTrainer"), \
+             patch("client.config.get_client_settings", return_value=settings):
+            start_scheduler(ds)
+
+        mock_cls.assert_called_once()
+        call_kwargs = mock_cls.call_args.kwargs
+        assert call_kwargs["name"] == "fl-scheduler-prod"
+        mock_thread.start.assert_called_once()
+
+    def test_dev_mode_auto_schedule_false_skips_thread(self) -> None:
+        """auto_schedule=False in dev mode must NOT spawn a scheduler thread."""
+        from client.engine.data_source import DevDataSource, PHYSICS_DEFAULTS
+        ds = DevDataSource(PHYSICS_DEFAULTS)
+        settings = self._mock_settings(auto_schedule=False)
+
+        with patch("client.engine.scheduler.threading.Thread") as mock_thread_cls, \
+             patch("client.engine.scheduler.FLClient"), \
+             patch("client.engine.scheduler.LocalTrainer"), \
+             patch("client.config.get_client_settings", return_value=settings):
+            start_scheduler(ds)
+
+        mock_thread_cls.assert_not_called()
 
     def test_poll_seconds_constant(self) -> None:
         assert POLL_SECONDS == 15

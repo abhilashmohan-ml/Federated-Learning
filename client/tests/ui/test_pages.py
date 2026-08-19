@@ -5,6 +5,7 @@ import flet as ft
 
 from client.ui.pages.local_results import LocalResultsPage
 from client.ui.pages.status import StatusPage
+from shared.utils.theme import LC
 
 
 def _mock_page() -> MagicMock:
@@ -63,14 +64,14 @@ class TestStatusPage:
         btn = next(c for c in col.controls if isinstance(c, ft.Button))
         assert btn.icon == ft.Icons.PLAY_ARROW
 
-    def test_build_status_text_color_grey_400(self) -> None:
+    def test_build_status_text_color_muted(self) -> None:
         col = self._make().build()
         conn_card = next(c for c in col.controls if isinstance(c, ft.Card))
         inner_col = conn_card.content.content
         status_text = next(
             t
             for t in inner_col.controls
-            if isinstance(t, ft.Text) and t.color == ft.Colors.GREY_400
+            if isinstance(t, ft.Text) and t.color == LC.TEXT_MUTED
         )
         assert "IDLE" in status_text.value
 
@@ -146,10 +147,11 @@ class TestStatusPage:
             MockLT.return_value.train_and_prepare_update.return_value = mock_update
             sp._run_round()
 
-    def test_run_round_updates_round_text_with_id(self) -> None:
+    def test_run_round_updates_round_text_with_per_site_run_count(self) -> None:
+        # run_count starts at 0 (mock), so this is site's 1st run → shows "1"
         sp = self._make()
-        self._run_round_success(sp, round_id=7)
-        assert "7" in sp._round_text.value
+        self._run_round_success(sp, round_id=7)   # global round_id irrelevant
+        assert "1" in sp._round_text.value
 
     def test_run_round_updates_phase_text_with_status(self) -> None:
         sp = self._make()
@@ -223,11 +225,11 @@ class TestLocalResultsPage:
         container = next(c for c in col.controls if isinstance(c, ft.Container))
         assert container.height == 280
 
-    def test_build_flux_subtitle_color_cyan(self) -> None:
+    def test_build_flux_subtitle_color_accent(self) -> None:
         col = LocalResultsPage(_mock_page()).build()
         container = next(c for c in col.controls if isinstance(c, ft.Container))
         subtitle = container.content.controls[1]
-        assert subtitle.color == ft.Colors.CYAN
+        assert subtitle.color == LC.ACCENT
 
     def test_build_contains_metrics_row(self) -> None:
         col = LocalResultsPage(_mock_page()).build()
@@ -238,12 +240,12 @@ class TestLocalResultsPage:
         row = next(c for c in col.controls if isinstance(c, ft.Row))
         assert len(row.controls) == 4
 
-    def test_build_metric_label_colors_grey_500(self) -> None:
+    def test_build_metric_label_colors_muted(self) -> None:
         col = LocalResultsPage(_mock_page()).build()
         row = next(c for c in col.controls if isinstance(c, ft.Row))
         for card in row.controls:
             label = card.content.content.controls[0]
-            assert label.color == ft.Colors.GREY_500
+            assert label.color == LC.TEXT_MUTED
 
     def test_build_metric_labels(self) -> None:
         col = LocalResultsPage(_mock_page()).build()

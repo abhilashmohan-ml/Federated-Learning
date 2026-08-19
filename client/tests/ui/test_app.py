@@ -197,9 +197,9 @@ class TestMain:
         page, *_ = _run_main(site_id="site_3")
         assert "site_3" in page.title
 
-    def test_page_theme_dark(self) -> None:
+    def test_page_theme_light(self) -> None:
         page, *_ = _run_main()
-        assert page.theme_mode == ft.ThemeMode.DARK
+        assert page.theme_mode == ft.ThemeMode.LIGHT
 
     def test_page_add_called(self) -> None:
         page, *_ = _run_main()

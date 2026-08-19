@@ -201,6 +201,50 @@ Build a consolidated, filter-agnostic Physics-Informed Neural Network (PINN) tha
   python scripts/generate_synthetic_data.py
   python scripts/run_simulation.py
 
+## UI Design System  (Liquid Carbon — applies to ALL Flet UI code)
+
+All Flet UI in this project (server dashboard + client UI) MUST follow the
+**Liquid Carbon Design System** sourced from D:\ViralFiltration.
+
+### Source assets
+  Design tokens class : D:\ViralFiltration\viral_filtration_flet_app.py  →  class LiquidCarbonTheme
+  Figma component SVGs: D:\ViralFiltration\assets\figma\  (Accordion, Alert, Button, Card, etc.)
+  Figma design file   : D:\ViralFiltration\assets\Liquid Carbon Design System File.fig
+  Logos / icons       : D:\ViralFiltration\assets\  (MRK.ico, merck_logo.svg, bg.svg)
+
+### Design tokens (copy verbatim from LiquidCarbonTheme in source project)
+  Theme mode          : ft.ThemeMode.LIGHT  (NOT dark)
+  BG_PRIMARY          : #FAFAFA   (page background — zinc-50)
+  BG_SECONDARY        : #F4F4F5   (zinc-100)
+  SURFACE             : #FFFFFF   (cards)
+  TEXT_PRIMARY        : #18181B   (zinc-900)
+  TEXT_SECONDARY      : #52525B   (zinc-600)
+  TEXT_MUTED          : #71717A   (zinc-500)
+  PRIMARY             : #0F69AF   (rich blue — buttons, accents)
+  ACCENT              : #2DBECD   (cyan — highlights)
+  MAGENTA             : #EB3C96
+  PURPLE              : #503291
+  LIME                : #A5CD50
+  ERROR               : #E61E50
+  SUCCESS             : #149B5F
+  WARNING             : #FFC832
+  BORDER              : #E4E4E7   (zinc-200)
+
+### Rules
+  - Import and use a local LC = LiquidCarbonTheme alias in every UI file
+  - page.bgcolor = LC.BG_PRIMARY; page.theme_mode = ft.ThemeMode.LIGHT
+  - Cards use bgcolor=LC.SURFACE with subtle border (border_radius=LC.RADIUS_MD)
+  - Primary action buttons: bgcolor=LC.PRIMARY, color=LC.SURFACE
+  - Status colours: done→LC.SUCCESS, error→LC.ERROR, training→LC.PRIMARY,
+                    uploading→LC.WARNING, idle→LC.TEXT_MUTED
+  - Never hardcode hex colours or reuse dark-theme greys (Colors.GREY_*) in new UI code
+  - Figma MCP (figma-developer-mcp) is available — consult Figma component SVGs before
+    implementing any new widget type
+
+### MCP access
+  .mcp.json is at project root. Set FIGMA_API_KEY env var to the key from
+  D:\ViralFiltration\.mcp.json before starting Claude Code to enable live Figma queries.
+
 ## Coding Conventions
   Formatter   black  line-length 100
   Linter      ruff

@@ -107,7 +107,7 @@ class ServerSettings(BaseSettings):
     fedprox_mu: float        = 0.01   # FedProx proximal term strength μ
 
     # Round management
-    min_sites_per_round: int    = 3    # minimum sites needed before triggering aggregation
+    min_sites_per_round: int    = 1    # minimum sites needed before triggering aggregation
     round_timeout_seconds: int  = 300  # if not enough sites reply, aggregate anyway after this
 
     # JWT token lifetimes

@@ -13,12 +13,14 @@ from client.config import get_client_settings
 from client.engine.state import get_state
 from client.ui.pages.local_results import LocalResultsPage
 from client.ui.pages.status import StatusPage
+from shared.utils.theme import LC
 
 
 def main(page: ft.Page) -> None:
     settings = get_client_settings()
     page.title      = f"Viral FL Client - {settings.site_id}"
-    page.theme_mode = ft.ThemeMode.DARK
+    page.theme_mode = ft.ThemeMode.LIGHT
+    page.bgcolor    = LC.BG_PRIMARY
     page.padding    = 20
 
     fl = FLClient()

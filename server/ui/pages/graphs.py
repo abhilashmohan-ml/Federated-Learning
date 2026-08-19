@@ -4,6 +4,7 @@ from __future__ import annotations
 import flet as ft
 from server.ui.components.flux_chart import FluxChart
 from server.ui.components.lrv_chart  import LRVChart
+from shared.utils.theme import LC
 
 
 class GraphsPage:
@@ -21,18 +22,27 @@ class GraphsPage:
     def build(self) -> ft.Control:
         if self._built is not None:
             return self._built
-        self._built = ft.Column([
-            ft.Text("Comparative Results — All Sites", size=26,
-                    weight=ft.FontWeight.BOLD),
-            ft.Divider(),
-            ft.Text("Min Filter Area  Amin (m²) — All Sites", size=17),
-            self._flux_chart.build(),
-            ft.Divider(),
-            ft.Text("Flux Ratio Distribution Across Sites", size=17),
-            self._lrv_chart.build(),
-            ft.Divider(),
-            ft.Text("Hermia Model Consensus",  size=17),
-            ft.Text("(bar chart — dominant blocking model per site — populates after round 1)",
-                    size=12, color=ft.Colors.GREY_500),
-        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16)
+        self._built = ft.Container(
+            content=ft.Column([
+                ft.Text("Comparative Results — All Sites", size=26,
+                        weight=ft.FontWeight.BOLD, color=LC.TEXT_PRIMARY),
+                ft.Divider(color=LC.BORDER),
+                ft.Text("Min Filter Area  Amin (m²) — All Sites", size=17,
+                        color=LC.TEXT_PRIMARY),
+                self._flux_chart.build(),
+                ft.Divider(color=LC.BORDER),
+                ft.Text("Flux Ratio Distribution Across Sites", size=17,
+                        color=LC.TEXT_PRIMARY),
+                self._lrv_chart.build(),
+                ft.Divider(color=LC.BORDER),
+                ft.Text("Hermia Model Consensus", size=17, color=LC.TEXT_PRIMARY),
+                ft.Text(
+                    "(bar chart — dominant blocking model per site — populates after round 1)",
+                    size=12, color=LC.TEXT_MUTED,
+                ),
+            ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16),
+            padding=24,
+            expand=True,
+            bgcolor=LC.BG_PRIMARY,
+        )
         return self._built

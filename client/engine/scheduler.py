@@ -113,8 +113,10 @@ def start_scheduler(data_source: DataSource) -> None:
     """
     Start the appropriate scheduler thread based on data source type.
 
-    Dev mode (DevDataSource)  → _watch_dev thread
-    Prod mode (ProdDataSource) → _watch_prod thread
+    Dev mode (DevDataSource)  → _watch_dev thread, only when auto_schedule=True.
+                                When auto_schedule=False (default), training is
+                                triggered exclusively via the UI button per site.
+    Prod mode (ProdDataSource) → _watch_prod thread always (data-driven).
     """
     from client.config import get_client_settings
     settings = get_client_settings()
@@ -125,6 +127,9 @@ def start_scheduler(data_source: DataSource) -> None:
         target = lambda: _watch_prod(fl, trainer, data_source, settings.data_poll_seconds)
         name   = "fl-scheduler-prod"
     else:
+        if not settings.auto_schedule:
+            log.info("scheduler_skipped", reason="manual_mode_dev")
+            return
         target = lambda: _watch_dev(fl, trainer)
         name   = "fl-scheduler-dev"
 

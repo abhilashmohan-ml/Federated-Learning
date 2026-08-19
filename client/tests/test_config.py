@@ -45,6 +45,26 @@ class TestSiteSecret:
         assert s1.site_secret == s2.site_secret == "mypass"
 
 
+# ── auto_schedule ────────────────────────────────────────────────────────────
+
+
+class TestAutoSchedule:
+    """auto_schedule defaults to False (manual mode); can be enabled via env."""
+
+    def test_default_is_false(self) -> None:
+        s = ClientSettings()
+        assert s.auto_schedule is False
+
+    def test_can_be_enabled(self) -> None:
+        s = ClientSettings(auto_schedule=True)
+        assert s.auto_schedule is True
+
+    def test_env_var_name_is_auto_schedule(self, monkeypatch) -> None:
+        monkeypatch.setenv("AUTO_SCHEDULE", "true")
+        s = ClientSettings()
+        assert s.auto_schedule is True
+
+
 # ── local_data_path ───────────────────────────────────────────────────────────
 
 
