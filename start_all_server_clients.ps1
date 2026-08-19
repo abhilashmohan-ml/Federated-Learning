@@ -33,14 +33,7 @@ function Start-Pane {
         "cd '$root'; & '$venv'; $setup $Command"
 }
 
-# -- Server ---------------------------------------------------------------------
-Start-Pane -Title "Server"     -Command "python server/main.py"   -BgColor "DarkBlue"
-Start-Sleep -Seconds 2
-
-Start-Pane -Title "Server GUI" -Command "python server/ui/app.py" -BgColor "DarkCyan"
-Start-Sleep -Seconds 1
-
-# -- Read per-site secrets from .env --------------------------------------------
+# -- Read per-site secrets from .env (must happen before init_db and client launch) --
 $envVars = @{}
 Get-Content "$root\.env" | ForEach-Object {
     if ($_ -match '^([^#=\s][^=]*)=(.*)$') {
@@ -55,6 +48,26 @@ $siteSecrets = @{
     "site_5" = $envVars["SITE_5_SECRET"]
 }
 # -------------------------------------------------------------------------------
+
+# -- Initialise DB and register sites (idempotent — safe on every start) --------
+Write-Host "Initialising database..." -ForegroundColor Yellow
+$env:REGISTERED_SITES  = $envVars["REGISTERED_SITES"]
+$env:SERVER_DB_URL     = $envVars["SERVER_DB_URL"]
+$env:SERVER_SECRET_KEY = $envVars["SERVER_SECRET_KEY"]
+& "$root\.venv\Scripts\python.exe" scripts/init_db.py
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: init_db.py failed. Verify REGISTERED_SITES in .env." -ForegroundColor Red
+    exit 1
+}
+Write-Host "  DB ready." -ForegroundColor Green
+# -------------------------------------------------------------------------------
+
+# -- Server ---------------------------------------------------------------------
+Start-Pane -Title "Server"     -Command "python server/main.py"   -BgColor "DarkBlue"
+Start-Sleep -Seconds 2
+
+Start-Pane -Title "Server GUI" -Command "python server/ui/app.py" -BgColor "DarkCyan"
+Start-Sleep -Seconds 1
 
 # -- Clients (PRODUCTION mode: no DEV_MODE, reads real CSV files) ---------------
 # Adjust SITE_ID and LOCAL_DATA_PATH per your deployment environment.

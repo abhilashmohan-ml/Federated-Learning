@@ -32,15 +32,7 @@ function Start-Pane {
         "cd '$root'; & '$venv'; $setup $Command"
 }
 
-# -- Servers -----------------------------------------------------------------
-$siteStatusUrls = "site_1:http://localhost:9001,site_2:http://localhost:9002,site_3:http://localhost:9003,site_4:http://localhost:9004,site_5:http://localhost:9005"
-Start-Pane -Title "Server"     -Command "`$env:DEV_MODE='true'; `$env:SITE_STATUS_URLS='$siteStatusUrls'; python server/main.py"    -BgColor "DarkBlue"
-Start-Sleep -Seconds 2
-
-Start-Pane -Title "Server GUI" -Command "python server/ui/app.py"  -BgColor "DarkCyan"
-Start-Sleep -Seconds 1
-
-# -- Read per-site secrets from .env ------------------------------------------------
+# -- Read per-site secrets from .env (must happen before init_db and client launch) --
 $envVars = @{}
 Get-Content "$root\.env" | ForEach-Object {
     if ($_ -match '^([^#=\s][^=]*)=(.*)$') {
@@ -55,6 +47,27 @@ $siteSecrets = @{
     "site_5" = $envVars["SITE_5_SECRET"]
 }
 # ---------------------------------------------------------------------------
+
+# -- Initialise DB and register sites (idempotent — safe on every start) ----
+Write-Host "Initialising database..." -ForegroundColor Yellow
+$env:REGISTERED_SITES  = $envVars["REGISTERED_SITES"]
+$env:SERVER_DB_URL     = $envVars["SERVER_DB_URL"]
+$env:SERVER_SECRET_KEY = $envVars["SERVER_SECRET_KEY"]
+& "$root\.venv\Scripts\python.exe" scripts/init_db.py
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: init_db.py failed. Verify REGISTERED_SITES in .env." -ForegroundColor Red
+    exit 1
+}
+Write-Host "  DB ready." -ForegroundColor Green
+# ---------------------------------------------------------------------------
+
+# -- Servers -----------------------------------------------------------------
+$siteStatusUrls = "site_1:http://localhost:9001,site_2:http://localhost:9002,site_3:http://localhost:9003,site_4:http://localhost:9004,site_5:http://localhost:9005"
+Start-Pane -Title "Server"     -Command "`$env:DEV_MODE='true'; `$env:SITE_STATUS_URLS='$siteStatusUrls'; python server/main.py"    -BgColor "DarkBlue"
+Start-Sleep -Seconds 2
+
+Start-Pane -Title "Server GUI" -Command "python server/ui/app.py"  -BgColor "DarkCyan"
+Start-Sleep -Seconds 1
 
 # -- Per-site physics vars — creates inter-site variance in dev-mode simulation --------
 $devPhysics = @{
