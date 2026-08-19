@@ -109,6 +109,8 @@ class RoundManager:
         self._site_last_run_at: Dict[str, Optional[datetime]] = {}
         # Per-site local_metrics (flux_ratio, amin_m2, flux_rmse) for server charts.
         self._site_metrics:     Dict[str, Dict[str, float]]  = {}
+        # Per-site best Hermia model name (string, kept separate from numeric metrics).
+        self._site_best_models: Dict[str, str]               = {}
         # Latest global metrics from the most recent successful aggregation.
         self._global_metrics:   Dict[str, float]             = {}
 
@@ -223,6 +225,8 @@ class RoundManager:
         self._site_last_run_at[update.site_id] = datetime.now(timezone.utc)
         if update.local_metrics:
             self._site_metrics[update.site_id] = dict(update.local_metrics)
+        if update.hermia_best_model:
+            self._site_best_models[update.site_id] = update.hermia_best_model
 
         log.info(
             "update_received",
@@ -385,6 +389,7 @@ class RoundManager:
             "site_metrics": {
                 site: dict(m) for site, m in self._site_metrics.items()
             },
+            "site_best_models": dict(self._site_best_models),
             "global_metrics":      dict(self._global_metrics),
         }
 

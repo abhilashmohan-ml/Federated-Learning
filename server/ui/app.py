@@ -157,8 +157,10 @@ def main(page: ft.Page) -> None:
                                 last_run_at=last_run_at.get(site_id),
                             )
 
-                        # Update comparative charts with latest per-site metrics
-                        site_metrics = data.get("site_metrics", {})
+                        # Update Site Monitor and comparative charts with per-site metrics
+                        site_metrics     = data.get("site_metrics", {})
+                        site_best_models = data.get("site_best_models", {})
+                        pages[1].update_data(site_metrics, site_best_models, rid)
                         if site_metrics:
                             graphs_pg.update(site_metrics)
 

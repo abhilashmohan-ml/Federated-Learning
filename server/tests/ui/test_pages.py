@@ -386,3 +386,58 @@ class TestSiteMonitorPage:
             if isinstance(c, ft.Text) and "Monitor" in c.value
         )
         assert heading.size == 26
+
+    def test_build_caches_result(self) -> None:
+        sm = SiteMonitorPage(_mock_page())
+        assert sm.build() is sm.build()
+
+    def test_update_data_populates_amin_tile(self) -> None:
+        sm = SiteMonitorPage(_mock_page())
+        sm.update_data(
+            {"site_1": {"amin_m2": 0.0025, "flux_ratio": 0.75}},
+            {},
+            3,
+        )
+        assert sm._val_amin.value == "0.0025"
+
+    def test_update_data_populates_flux_ratio_tile(self) -> None:
+        sm = SiteMonitorPage(_mock_page())
+        sm.update_data(
+            {"site_1": {"amin_m2": 0.0025, "flux_ratio": 0.75}},
+            {},
+            3,
+        )
+        assert sm._val_flux_ratio.value == "0.750"
+
+    def test_update_data_populates_round_tile(self) -> None:
+        sm = SiteMonitorPage(_mock_page())
+        sm.update_data({}, {}, 7)
+        assert sm._val_round.value == "7"
+
+    def test_update_data_populates_best_model_tile(self) -> None:
+        sm = SiteMonitorPage(_mock_page())
+        sm.update_data({}, {"site_1": "combined_1a"}, 1)
+        assert sm._val_best_model.value == "combined_1a"
+
+    def test_update_data_no_metrics_shows_dashes(self) -> None:
+        sm = SiteMonitorPage(_mock_page())
+        sm.update_data({}, {}, 0)
+        assert sm._val_amin.value == "--"
+        assert sm._val_flux_ratio.value == "--"
+        assert sm._val_round.value == "--"
+
+    def test_on_site_change_updates_selected_site_and_calls_page_update(self) -> None:
+        page = _mock_page()
+        sm   = SiteMonitorPage(page)
+        sm.update_data(
+            {"site_3": {"amin_m2": 0.003, "flux_ratio": 0.6}},
+            {"site_3": "cake"},
+            2,
+        )
+        e = MagicMock()
+        e.control.value = "site_3"
+        page.update.reset_mock()
+        sm._on_site_change(e)
+        assert sm._selected_site == "site_3"
+        assert sm._val_amin.value == "0.0030"
+        page.update.assert_called_once()
