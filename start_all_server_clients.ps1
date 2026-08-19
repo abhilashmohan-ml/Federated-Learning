@@ -40,12 +40,29 @@ Start-Sleep -Seconds 2
 Start-Pane -Title "Server GUI" -Command "python server/ui/app.py" -BgColor "DarkCyan"
 Start-Sleep -Seconds 1
 
+# -- Read per-site secrets from .env --------------------------------------------
+$envVars = @{}
+Get-Content "$root\.env" | ForEach-Object {
+    if ($_ -match '^([^#=\s][^=]*)=(.*)$') {
+        $envVars[$matches[1].Trim()] = $matches[2].Trim()
+    }
+}
+$siteSecrets = @{
+    "site_1" = $envVars["SITE_1_SECRET"]
+    "site_2" = $envVars["SITE_2_SECRET"]
+    "site_3" = $envVars["SITE_3_SECRET"]
+    "site_4" = $envVars["SITE_4_SECRET"]
+    "site_5" = $envVars["SITE_5_SECRET"]
+}
+# -------------------------------------------------------------------------------
+
 # -- Clients (PRODUCTION mode: no DEV_MODE, reads real CSV files) ---------------
 # Adjust SITE_ID and LOCAL_DATA_PATH per your deployment environment.
 foreach ($i in 1..5) {
     $site = "site_$i"
+    $secret = $siteSecrets[$site]
     Start-Pane -Title "Site $i" `
-               -Command "`$env:SITE_ID='$site'; `$env:FLET_CLIENT_PORT='$((8550+$i))'; `$env:CLIENT_STATUS_PORT='$((9000+$i))'; python client/main.py" `
+               -Command "`$env:SITE_ID='$site'; `$env:SITE_SECRET='$secret'; `$env:FLET_CLIENT_PORT='$((8550+$i))'; `$env:CLIENT_STATUS_PORT='$((9000+$i))'; python client/main.py" `
                -BgColor "DarkMagenta"
     Start-Sleep -Milliseconds 500
 }
