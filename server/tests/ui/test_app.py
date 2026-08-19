@@ -146,7 +146,7 @@ class TestMainPageProperties:
 
 
 class TestMainRowLayout:
-    """The ft.Row passed to page.add contains the nav-rail result as its first control."""
+    """page.add receives a Column; its second control is a Row with nav-rail first."""
 
     def test_row_first_control_is_nav_rail(self) -> None:
         page = _page()
@@ -160,8 +160,10 @@ class TestMainRowLayout:
              patch(_NAV, return_value=mock_rail):
             main(page)
 
-        row = added[0]
-        assert isinstance(row, ft.Row), "page.add must receive a ft.Row"
+        col = added[0]
+        assert isinstance(col, ft.Column), "page.add must receive a ft.Column"
+        row = col.controls[1]
+        assert isinstance(row, ft.Row), "Column's second control must be a ft.Row"
         assert row.controls[0] is mock_rail, (
             "first control in the Row must be the build_nav_rail() result"
         )
@@ -196,9 +198,10 @@ class TestOnNav:
         on_nav = mock_build_nav_rail.call_args[0][0]
         assert callable(on_nav), "build_nav_rail must be called with the on_nav callable"
 
-        # body is the third element of the Row's controls list:
-        # [nav_rail, ft.VerticalDivider, body]
-        row = added[0]
+        # body is the third element of the inner Row's controls list:
+        # Column([header, Row([nav_rail, ft.VerticalDivider, body])])
+        col = added[0]
+        row = col.controls[1]
         body = row.controls[2]
 
         # Simulate a navigation event pointing at page index 2 (GlobalModelPage).

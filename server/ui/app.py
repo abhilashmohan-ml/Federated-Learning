@@ -10,6 +10,8 @@ Pages
 4  Settings       server config + site management
 """
 import asyncio
+from datetime import datetime, timezone
+from pathlib import Path
 
 import flet as ft
 import httpx
@@ -25,6 +27,12 @@ from server.ui.pages.graphs       import GraphsPage
 from server.ui.pages.settings     import SettingsPage
 from server.ui.components.nav_rail import build_nav_rail
 from shared.utils.theme import LC
+
+_ASSETS_DIR = str(Path(__file__).parent / "assets")
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
 
 def main(page: ft.Page) -> None:
@@ -49,10 +57,53 @@ def main(page: ft.Page) -> None:
         body.content = pages[e.control.selected_index].build()
         page.update()
 
+    utc_clock = ft.Text(
+        _utc_now(),
+        size=10,
+        color=LC.TEXT_MUTED,
+        font_family="monospace",
+        text_align=ft.TextAlign.CENTER,
+    )
+
+    header = ft.Container(
+        content=ft.Row(
+            [
+                ft.Container(expand=True),
+                ft.Column(
+                    [
+                        ft.Image(
+                            src="merck_logo.svg",
+                            width=70,
+                            height=33,
+                            fit=ft.BoxFit.CONTAIN,
+                        ),
+                        utc_clock,
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=2,
+                ),
+                ft.Container(width=16),
+            ],
+            alignment=ft.MainAxisAlignment.START,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=ft.Padding(left=0, top=6, right=0, bottom=6),
+        bgcolor=LC.SURFACE,
+        border=ft.Border(bottom=ft.BorderSide(1, LC.BORDER)),
+        height=56,
+    )
+
     page.add(
-        ft.Row(
-            [build_nav_rail(on_nav), ft.VerticalDivider(width=1), body],
+        ft.Column(
+            [
+                header,
+                ft.Row(
+                    [build_nav_rail(on_nav), ft.VerticalDivider(width=1), body],
+                    expand=True,
+                ),
+            ],
             expand=True,
+            spacing=0,
         )
     )
 
@@ -130,9 +181,16 @@ def main(page: ft.Page) -> None:
                     ]
                     page.update()
 
+    async def clock_tick() -> None:
+        while running[0]:
+            utc_clock.value = _utc_now()
+            page.update()
+            await asyncio.sleep(1)
+
     page.run_task(poll_loop)
+    page.run_task(clock_tick)
 
 
 if __name__ == "__main__":
     s = get_settings()
-    ft.run(main, port=s.flet_port, view=ft.AppView.WEB_BROWSER)
+    ft.run(main, port=s.flet_port, view=ft.AppView.WEB_BROWSER, assets_dir=_ASSETS_DIR)
