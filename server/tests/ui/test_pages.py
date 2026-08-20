@@ -419,11 +419,21 @@ class TestSiteMonitorPage:
         sm.update_data({}, {"site_1": "combined_1a"}, 1)
         assert sm._val_best_model.value == "combined_1a"
 
+    def test_update_data_populates_lrv_tile(self) -> None:
+        sm = SiteMonitorPage(_mock_page())
+        sm.update_data(
+            {"site_1": {"amin_m2": 0.0025, "flux_ratio": 0.75, "lrv": 4.567}},
+            {},
+            3,
+        )
+        assert sm._val_lrv.value == "4.567"
+
     def test_update_data_no_metrics_shows_dashes(self) -> None:
         sm = SiteMonitorPage(_mock_page())
         sm.update_data({}, {}, 0)
         assert sm._val_amin.value == "--"
         assert sm._val_flux_ratio.value == "--"
+        assert sm._val_lrv.value == "--"
         assert sm._val_round.value == "--"
 
     def test_on_site_change_updates_selected_site_and_calls_page_update(self) -> None:

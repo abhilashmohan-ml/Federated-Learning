@@ -58,8 +58,10 @@ class SiteMonitorPage:
         m    = self._site_metrics.get(self._selected_site, {})
         amin = m.get("amin_m2")
         fr   = m.get("flux_ratio")
+        lrv  = m.get("lrv")
         self._val_amin.value       = f"{amin:.4f}" if amin is not None else "--"
         self._val_flux_ratio.value = f"{fr:.3f}"   if fr   is not None else "--"
+        self._val_lrv.value        = f"{lrv:.3f}"  if lrv  is not None else "--"
         self._val_best_model.value = self._site_best_models.get(self._selected_site, "--")
         self._val_round.value      = str(self._current_round_id) if self._current_round_id else "--"
 
