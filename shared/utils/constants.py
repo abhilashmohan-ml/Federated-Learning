@@ -80,6 +80,12 @@ PC_BOUNDS     = (0.0,   1.0)    # capture probability: must be in [0, 1]
 JCRIT_BOUNDS  = (1.0,   500.0)  # critical flux in LMH
 LAMBDA_BOUNDS = (0.0,   100.0)  # membrane affinity parameter (dimensionless)
 
+# Default Manabe parameters for a typical parvovirus-retentive VVDF membrane.
+# Used when site-specific LRV validation data is not available.
+# In production, replace with values fitted from virus-spiking study data.
+MANABE_LAMBDA_DEFAULT: float = 5.0   # membrane affinity (dimensionless)
+MANABE_JCRIT_DEFAULT:  float = 50.0  # critical flux (LMH)
+
 
 # ── Regulatory LRV thresholds ───────────────────────────────────────────────────
 #

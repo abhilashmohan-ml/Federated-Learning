@@ -59,8 +59,10 @@ from client.config              import get_client_settings
 from client.engine.data_source  import DataSource
 from client.engine.state        import update_state
 from shared.models.hermia       import fit_all_models, compute_flux_ratio, compute_amin
+from shared.models.manabe       import capture_probability, compute_lrv
 from shared.crypto.noise        import add_gaussian_noise
 from shared.schemas.federation  import ModelUpdate
+from shared.utils.constants     import MANABE_LAMBDA_DEFAULT, MANABE_JCRIT_DEFAULT
 from shared.utils.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -136,6 +138,11 @@ class LocalTrainer:
             operation_time_h=float(time[-1]) / 60.0,  # convert last time point to hours
         )
 
+        # LRV from Manabe model using mean operating flux and membrane defaults.
+        # capture_probability uses Pc = 1 - exp(-λ·J/J_crit); compute_lrv gives log10(1/(1-Pc)).
+        Pc  = capture_probability(avg_flux, MANABE_LAMBDA_DEFAULT, MANABE_JCRIT_DEFAULT)
+        lrv = compute_lrv(Pc)
+
         # Collect all metrics we want to report to the server dashboard
         local_metrics: Dict[str, float] = {
             "flux_rmse":  best.rmse,        # how well the best model fit the data
@@ -143,6 +150,7 @@ class LocalTrainer:
             "amin_m2":    amin,              # minimum filter area in m²
             "best_aic":   best.aic,          # AIC of the selected model
             "best_bic":   best.bic,          # BIC of the selected model
+            "lrv":        lrv,              # log reduction value (Manabe, mean flux)
         }
 
         # ── Step 5: Build delta_W from fitted model parameters ─────────────────

@@ -95,6 +95,7 @@ class StatusPage:
                 last_round_completed=round_info.round_id,
                 run_count=state.run_count + 1,
                 last_run_at=now,
+                last_lrv=update.local_metrics.get("lrv"),
                 last_flux_ratio=update.local_metrics.get("flux_ratio"),
                 last_amin=update.local_metrics.get("amin_m2"),
                 last_hermia_model=update.hermia_best_model,

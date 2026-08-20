@@ -141,7 +141,9 @@ class TestLocalTrainer:
         assert "flux_rmse" in update.local_metrics
         assert "flux_ratio" in update.local_metrics
         assert "amin_m2" in update.local_metrics
+        assert "lrv" in update.local_metrics
         assert update.local_metrics["flux_ratio"] == pytest.approx(0.75)
+        assert isinstance(update.local_metrics["lrv"], float)
 
     def test_train_fallback_to_first_when_no_selected(self) -> None:
         """When no HermiaResult has selected=True, falls back to first in dict."""
@@ -174,7 +176,7 @@ class TestLocalTrainer:
             with pytest.raises(RuntimeError, match="All Hermia models failed"):
                 LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(round_id=1)
 
-    def test_all_five_local_metric_keys_present(self) -> None:
+    def test_all_six_local_metric_keys_present(self) -> None:
         mock_result = _make_hermia_result(selected=True)
         mock_result.aic = -60.0
         mock_result.bic = -55.0
@@ -195,8 +197,10 @@ class TestLocalTrainer:
         assert "amin_m2" in update.local_metrics
         assert "best_aic" in update.local_metrics
         assert "best_bic" in update.local_metrics
+        assert "lrv" in update.local_metrics
         assert update.local_metrics["best_aic"] == pytest.approx(-60.0)
         assert update.local_metrics["best_bic"] == pytest.approx(-55.0)
+        assert isinstance(update.local_metrics["lrv"], float)
 
     def test_dp_noise_applied(self) -> None:
         mock_result = _make_hermia_result(selected=True)
@@ -229,10 +233,14 @@ class TestWatchDev:
         return MagicMock()
 
     def _mock_update(
-        self, flux_ratio: float = 0.88, amin: float = 0.04, model: str = "combined_1a"
+        self,
+        flux_ratio: float = 0.88,
+        amin: float = 0.04,
+        model: str = "combined_1a",
+        lrv: float = 4.2,
     ) -> MagicMock:
         u = MagicMock()
-        u.local_metrics = {"flux_ratio": flux_ratio, "amin_m2": amin}
+        u.local_metrics = {"flux_ratio": flux_ratio, "amin_m2": amin, "lrv": lrv}
         u.hermia_best_model = model
         return u
 
@@ -344,6 +352,7 @@ class TestWatchDev:
         assert done_call is not None
         assert done_call["run_count"] == 1
         assert done_call["last_round_completed"] == 2
+        assert done_call["last_lrv"] == pytest.approx(4.2)
         assert done_call["last_flux_ratio"] == pytest.approx(0.75)
         assert done_call["last_amin"] == pytest.approx(0.03)
         assert done_call["last_hermia_model"] == "cake"
@@ -389,10 +398,14 @@ class TestWatchProd:
         return r
 
     def _mock_update(
-        self, flux_ratio: float = 0.8, amin: float = 0.04, model: str = "combined_1a"
+        self,
+        flux_ratio: float = 0.8,
+        amin: float = 0.04,
+        model: str = "combined_1a",
+        lrv: float = 4.2,
     ) -> MagicMock:
         u = MagicMock()
-        u.local_metrics = {"flux_ratio": flux_ratio, "amin_m2": amin}
+        u.local_metrics = {"flux_ratio": flux_ratio, "amin_m2": amin, "lrv": lrv}
         u.hermia_best_model = model
         return u
 
@@ -484,6 +497,7 @@ class TestWatchProd:
         assert done_call is not None
         assert done_call["run_count"] == 2
         assert done_call["last_round_completed"] == 3
+        assert done_call["last_lrv"] == pytest.approx(4.2)
         assert done_call["last_flux_ratio"] == pytest.approx(0.65)
         assert done_call["last_amin"] == pytest.approx(0.02)
         assert done_call["last_hermia_model"] == "cake"
