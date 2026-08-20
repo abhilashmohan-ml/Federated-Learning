@@ -1,9 +1,9 @@
 # Functional Specification
 ## Viral Filtration Federated Learning Platform
 
-**Version:** 2.0  
-**Date:** 2026-08-15  
-**Status:** Implemented (v0.2.0 — data-driven FL branch)
+**Version:** 2.1  
+**Date:** 2026-08-20  
+**Status:** Implemented (v0.2.1 — monitor fixes + LC design system)
 
 ---
 
@@ -134,6 +134,9 @@ The system provides:
 | FR-46 | Site registration SHALL be dynamic — any site_id string is valid; no hardcoded `site_1..site_5` enumeration in production Python code |
 | FR-50 | `SitePoller` SHALL call `RoundManager.sync_site_phase(site_id, phase)` on each successful heartbeat poll, in addition to `sync_site_run_info()`, so all configured sites appear in the server dashboard with their current training phase |
 | FR-51 | `TrainingState` SHALL store `flux_times: list[float]` and `flux_vals: list[float]` from each local training run, updated by `LocalTrainer` after Hermia fitting, for display in the client flux decline chart |
+| FR-52 | The server SHALL expose `GET /internal/status` (no authentication required) that returns the current round state and per-site training phases; this endpoint is consumed exclusively by the co-located Flet dashboard process on the same host |
+| FR-53 | The server dashboard header SHALL display the Merck M logo and a live UTC clock updated every second |
+| FR-54 | The client "Trigger Manual Round" button SHALL display an animated spinner while training is in progress and SHALL show incremental phase labels (`training` → `uploading` → `done`) so the operator has live feedback without polling |
 
 ---
 

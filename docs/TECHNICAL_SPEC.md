@@ -1,9 +1,9 @@
 # Technical Specification
 ## Viral Filtration Federated Learning Platform
 
-**Version:** 2.0  
-**Date:** 2026-08-15  
-**Status:** Implemented (v0.2.0 — data-driven FL branch)
+**Version:** 2.1  
+**Date:** 2026-08-20  
+**Status:** Implemented (v0.2.1 — monitor fixes + LC design system)
 
 ---
 
@@ -274,6 +274,40 @@ Download current global model weights.
 ```
 
 **Response 503:** No global model available yet (no round completed).
+
+---
+
+### 2.5 Internal — `/internal`
+
+#### GET `/internal/status`
+
+Read-only status snapshot consumed by the co-located Flet dashboard process. No authentication required.
+
+**Response 200:** Full output of `RoundManager.get_status_snapshot()`:
+```json
+{
+  "current_round_id": 3,
+  "round_status": "collecting",
+  "site_statuses": {
+    "site_1": "training",
+    "site_2": "idle",
+    "site_3": "done"
+  },
+  "site_metrics": {
+    "site_1": {"flux_rmse": 1.23, "flux_ratio": 0.71, "amin_m2": 0.0042},
+    "site_2": {}
+  },
+  "run_counts": {"site_1": 12, "site_2": 9},
+  "last_run_at": {"site_1": "2026-08-20T10:30:00+00:00"},
+  "global_model_version": 2,
+  "rounds_completed": 2,
+  "fl_rounds": 50
+}
+```
+
+**Security note:** This endpoint is read-only and exposes no credentials, weights, or raw data — only round status and per-site training phases. It is intended for the Flet dashboard process running on the same host. Production deployments should restrict it to loopback via firewall or nginx `allow 127.0.0.1`.
+
+**Implementation:** `server/api/internal.py` — `GET /internal/status`. Registered with `prefix="/internal"` in `server/main.py`.
 
 ---
 
@@ -902,3 +936,52 @@ Three chart types are implemented:
 | `FluxChart(multi_site=False)` | Client Local Results page | J(t) line chart — flux decline over time |
 
 `FluxChart.update_data(site_metrics: dict[str, dict[str, float]])` accepts the same `site_metrics` dict that `RoundManager.get_status_snapshot()` returns in the `"site_metrics"` key.
+
+---
+
+## 23. LiquidCarbonTheme (`shared/utils/theme.py`)
+
+All Flet UI in the project (server dashboard + client UI) uses the **Liquid Carbon Design System** light theme. Tokens are centralised in `shared/utils/theme.py`:
+
+```python
+class LiquidCarbonTheme:
+    BG_PRIMARY   = "#FAFAFA"   # page background (zinc-50)
+    BG_SECONDARY = "#F4F4F5"   # zinc-100
+    SURFACE      = "#FFFFFF"   # cards
+    TEXT_PRIMARY = "#18181B"   # zinc-900
+    TEXT_SECONDARY = "#52525B" # zinc-600
+    TEXT_MUTED   = "#71717A"   # zinc-500
+    PRIMARY      = "#0F69AF"   # rich blue — buttons, accents
+    ACCENT       = "#2DBECD"   # cyan
+    MAGENTA      = "#EB3C96"
+    PURPLE       = "#503291"
+    LIME         = "#A5CD50"
+    ERROR        = "#E61E50"
+    SUCCESS      = "#149B5F"
+    WARNING      = "#FFC832"
+    BORDER       = "#E4E4E7"   # zinc-200
+    RADIUS_SM    = 5
+    RADIUS_MD    = 8
+    CHART_COLORS = ["#0F69AF", "#EB3C96", "#2DBECD", "#503291", "#A5CD50", "#FFC832"]
+
+LC = LiquidCarbonTheme   # short alias used in all UI files
+```
+
+**Usage convention:** Every UI file imports `LC` from `shared.utils.theme` and uses only token values — no hardcoded hex strings. `page.bgcolor = LC.BG_PRIMARY`, `page.theme_mode = ft.ThemeMode.LIGHT`. Status semantic colours follow: `done → LC.SUCCESS`, `error → LC.ERROR`, `training → LC.PRIMARY`, `uploading → LC.WARNING`, `idle → LC.TEXT_MUTED`.
+
+---
+
+## 24. `client/engine/data_loader.py`
+
+Legacy utility module retained for direct-CSV access patterns:
+
+```python
+def load_filtration_csv(path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Read a filtration CSV and return (time_min, flux_lmh, tmp_bar) arrays.
+    Required columns: time_min, flux_lmh, tmp_bar.
+    Raises FileNotFoundError if path missing; ValueError if columns absent.
+    """
+```
+
+`ProdDataSource` calls this function internally after selecting an unprocessed `filtration_*.csv` file. `LocalTrainer` in production mode receives the arrays from `ProdDataSource.get_data()` (which calls `load_filtration_csv`), not directly from this module. The `DataSource` protocol (Section 14) is the correct integration point for all new code.

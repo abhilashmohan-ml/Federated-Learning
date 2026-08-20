@@ -90,7 +90,7 @@ graph LR
     end
 
     subgraph SERVER["FL Server  port 8000 + Flet 8550"]
-        SRV_API["API Layer\nauth, federation\nmodels, health\nsettings (admin)"]
+        SRV_API["API Layer\nauth, federation\nmodels, health\nsettings (admin)\ninternal (no auth)"]
         SRV_CORE["Core\nRoundManager + AggregationPolicy\nFedProxAggregator\nModelRegistry\nSitePoller (heartbeat)"]
         SRV_DB["Database\nSQLAlchemy, Alembic\n5 tables incl. server_settings"]
         SRV_UI["Dashboard UI\nFlet (run counts + policy)"]
@@ -167,10 +167,11 @@ sequenceDiagram
 
     Note over SITE,TR: 3) Local training  (data stays on-site)
     SITE ->> TR: train_and_prepare_update(round_id=1)
-    TR ->> TR: load_filtration_csv()
+    TR ->> TR: DataSource.get_data()  Dev: synthetic flux  Prod: filtration_*.csv
     TR ->> TR: fit_all_models()  Hermia AIC selection
     TR ->> TR: compute_flux_ratio()  compute_amin()
     TR ->> TR: add_gaussian_noise(delta_W, sigma)
+    TR ->> TR: update_state(flux_times, flux_vals, run_count, ...)
     TR -->> SITE: ModelUpdate  delta_W, n_samples, metrics
 
     Note over SITE,SRV: 4) Upload privacy-protected update
@@ -178,15 +179,21 @@ sequenceDiagram
     SRV ->> DB: INSERT model_updates
     SRV -->> SITE: 200 accepted
 
-    Note over SRV,DB: 5) Aggregate after all sites submit
+    Note over SRV,DB: 5) Aggregate when quorum or timeout reached
+    SRV ->> SRV: AggregationPolicy.should_aggregate()  QuorumPolicy or TimeWindowPolicy
     SRV ->> SRV: FedProxAggregator.aggregate(updates, W_current)
     SRV ->> SRV: W_new = sum(n_i / N * (W_current + dW_i))
     SRV ->> DB: UPDATE rounds SET status=complete
     SRV ->> SRV: store new global weights in ModelRegistry
 
-    Note over SITE,SRV: 6) Next round begins
-    SITE ->> SRV: GET /models/global-model
-    SRV -->> SITE: GlobalModel  version=2
+    Note over SRV,DB: 6) Auto-start next round (no operator action needed)
+    SRV ->> SRV: reset DONE sites to IDLE
+    SRV ->> SRV: asyncio.create_task(start_new_round())  stored in _background_tasks
+    SRV ->> DB: INSERT rounds  round_id=2  status=collecting
+
+    Note over SITE,SRV: 7) Sites join next round via current-round endpoint
+    SITE ->> SRV: GET /federation/current-round  (prod mode or manual trigger)
+    SRV -->> SITE: FederationRound  round_id=2  status=collecting
     </div>
   </div>
 </section>
@@ -213,21 +220,26 @@ graph LR
     end
 
     subgraph API["API Layer  server/api/"]
-        AUTH_EP["auth.py\nPOST /auth/token\nPOST /auth/refresh\nPOST /auth/revoke\nget_current_site() dependency"]
-        FED_EP["federation.py\nPOST /round/start\nPOST /update\nGET /round/id\nGET /sites"]
+        AUTH_EP["auth.py\nPOST /auth/token\nPOST /auth/refresh\nPOST /auth/revoke\nget_current_site() dependency\nrequire_admin_token() dependency"]
+        FED_EP["federation.py\nPOST /round/start\nPOST /update\nGET /round/id\nGET /sites\nGET /current-round"]
         MDL_EP["models.py\nGET /models/global-model"]
-        HLT_EP["health.py\nGET /health/\nGET /health/metrics"]
+        HLT_EP["health.py\nGET /health/"]
+        SETT_EP["settings.py\nGET /settings (bearer)\nPUT /settings (X-Admin-Key)"]
+        INT_EP["internal.py\nGET /internal/status\nno auth — dashboard only"]
     end
 
     subgraph CORE["Core  server/core/"]
-        RM["RoundManager\nstart_new_round()\nreceive_update()\n_aggregate()\n_timeout_guard()\nget_round()\nget_site_statuses()\ncurrent_global_weights"]
+        RM["RoundManager\nstart_new_round()\nreceive_update()\n_aggregate() auto-next-round\nset_policy(AggregationPolicy)\nsync_site_run_info()\nsync_site_phase()\nmark_site_error()\nget_status_snapshot()"]
+        AGGPOL["AggregationPolicy (Protocol)\nQuorumPolicy(min_sites)\nTimeWindowPolicy(window_seconds)\nshould_aggregate()"]
         AGG["FedProxAggregator\naggregate(updates, W_current)\nreturns GlobalModel"]
         REG["ModelRegistry\nregister(GlobalModel)\nlatest()  history()"]
+        SP["SitePoller\n_poll_once()\nrun()  start()\npolls /site/status every N s\nsync_site_run_info + sync_site_phase"]
     end
 
     subgraph DB["Database  server/db/"]
         DATABASE["database.py\ncreate_async_engine()\nAsyncSessionLocal\nget_db() AsyncSession"]
-        MODELS_DB["models.py\nSiteRegistry\nRoundRecord\nModelUpdateRecord\nRevokedToken"]
+        MODELS_DB["models.py\nSiteRegistry\nRoundRecord\nModelUpdateRecord\nRevokedToken\nServerSetting"]
+        STORE["settings_store.py\nSettingsStore\nload() / save()\nDEFAULTS: aggregation_mode\nquorum_min_sites etc."]
     end
 
     subgraph CRYPTO_SRV["Crypto dependencies"]
@@ -240,6 +252,8 @@ graph LR
     MAIN --> FED_EP
     MAIN --> MDL_EP
     MAIN --> HLT_EP
+    MAIN --> SETT_EP
+    MAIN --> INT_EP
     MAIN --> CFG
 
     AUTH_EP --> JWT
@@ -249,13 +263,20 @@ graph LR
 
     FED_EP --> RM
     MDL_EP --> RM
+    INT_EP --> RM
     FED_EP --> AUTH_EP
+    SETT_EP --> RM
+    SETT_EP --> STORE
 
     RM --> AGG
     RM --> REG
+    RM --> AGGPOL
     RM --> CFG
+    SP --> RM
+    MAIN --> SP
 
     DATABASE --> MODELS_DB
+    STORE --> DATABASE
 
     style ENTRY      fill:#e1f5fe,stroke:#0277bd,color:#01579b
     style MIDDLEWARE fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
@@ -263,6 +284,11 @@ graph LR
     style CORE       fill:#e8eaf6,stroke:#3949ab,color:#1a237e
     style DB         fill:#fff8e1,stroke:#f57f17,color:#e65100
     style CRYPTO_SRV fill:#fce4ec,stroke:#880e4f,color:#880e4f
+    style SETT_EP    fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+    style INT_EP     fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+    style AGGPOL     fill:#e8eaf6,stroke:#3949ab,color:#1a237e
+    style SP         fill:#e8eaf6,stroke:#3949ab,color:#1a237e
+    style STORE      fill:#fff8e1,stroke:#f57f17,color:#e65100
     </div>
   </div>
 
@@ -303,12 +329,14 @@ graph LR
     <div class="mermaid">
 graph TD
     subgraph ENTRY_C["Entry Point  client/main.py"]
-        CMAIN["configure_logging()\nThread(target=_background, daemon=True).start()\nft.app(flet_main, port=8551)  blocking"]
+        CMAIN["fl = FLClient()\nfl.authenticate()  retry loop\nThread(target=_background, args=(fl,), daemon=True).start()\nft.run(lambda page: flet_main(page, fl), port=855N)  blocking"]
     end
 
-    subgraph BG["Background launcher  _background()"]
+    subgraph BG["Background launcher  _background(fl)"]
         HB_START["start_heartbeat()\nThread(target=_beat, daemon=True)"]
-        SC_START["start_scheduler()\nThread(target=_watch, daemon=True)"]
+        DS["DataSource selection\nDEV_MODE → DevDataSource(physics, jitter)\nelse    → ProdDataSource(data_dir)"]
+        SS_START["start_status_server(client_status_port)\nFastAPI GET /site/status  bearer auth"]
+        SC_START["start_scheduler(data_source, fl_client)\nThread(target=_watch, daemon=True)"]
     end
 
     subgraph HEARTBEAT["Heartbeat Thread  comms/heartbeat.py"]
@@ -316,34 +344,44 @@ graph TD
     end
 
     subgraph SCHEDULER["Scheduler Thread  engine/scheduler.py"]
-        WATCH["_watch()\nfl.authenticate()\nloop every 15s:\n  GET /federation/round/n\n  if collecting: train + upload"]
+        WATCH["_watch_dev() / _watch_prod()\nloop: DataSource.get_data()\nget_current_round()  join open round\ntrain_and_prepare_update(round_id)\nupload_update(ModelUpdate)"]
     end
 
     subgraph ENGINE["Engine  client/engine/"]
-        DL["data_loader.py\nload_filtration_csv(path)\nreturns time, flux, tmp arrays"]
-        LTR["local_trainer.py\nLocalTrainer\n  train_and_prepare_update(round_id)\n  fit_all_models()  Hermia AIC\n  compute_flux_ratio()\n  compute_amin()\n  add_gaussian_noise()"]
-        DL --> LTR
+        DS_DEV["DevDataSource\nCombined 1-A synthetic flux\nDEV_J0/K1/K2/NOISE/TMP_BASE\nGaussian jitter per call"]
+        DS_PROD["ProdDataSource\npolls filtration_*.csv dir\n.processed.json sidecar\nNoNewDataError if empty"]
+        DL["data_loader.py\nload_filtration_csv(path)\nused by ProdDataSource internally"]
+        LTR["local_trainer.py\nLocalTrainer(data_source: DataSource)\n  train_and_prepare_update(round_id)\n  fit_all_models()  Hermia AIC\n  compute_flux_ratio()  compute_amin()\n  add_gaussian_noise()\n  writes flux_times/flux_vals to TrainingState"]
+        STATE["state.py  TrainingState\nphase, run_count, last_run_at\nflux_times, flux_vals"]
+        DS_PROD --> DL
+        DS_DEV --> LTR
+        DS_PROD --> LTR
+        LTR --> STATE
     end
 
     subgraph COMMS["Comms  client/comms/"]
-        FLC["fl_client.py\nFLClient\n  authenticate() returns tokens\n  _request() with retry backoff\n  upload_update(ModelUpdate)\n  get_global_model()\n  _do_refresh()"]
+        FLC["fl_client.py  FLClient\n  authenticate()  _do_refresh()\n  _request() retry + backoff\n  upload_update(ModelUpdate)\n  get_global_model()\n  get_current_round()\n  threading.Lock for token refresh"]
+        STSRV["status_server.py\nFastAPI GET /site/status\nbearer auth (SITE_SECRET)\nreads TrainingState"]
     end
 
     subgraph CCFG["Config  client/config.py"]
-        CS["ClientSettings\nsite_id, server_url, site_secret\ndp_noise_sigma, local_data_path\nverify_ssl, retry_attempts\nget_client_settings() lru_cache"]
+        CS["ClientSettings\nsite_id, server_url, site_secret\ndp_noise_sigma, local_data_path\ndev_mode, dev_j0/k1/k2/noise\nclient_status_port\nverify_ssl, retry_attempts\nget_client_settings() lru_cache"]
     end
 
     CMAIN --> HB_START
+    CMAIN --> DS
     CMAIN --> SC_START
+    DS    --> SS_START
     HB_START --> BEAT
     SC_START --> WATCH
 
     WATCH --> LTR
     WATCH --> FLC
-    LTR  --> FLC
-    LTR  --> CS
-    FLC  --> CS
-    BEAT --> CS
+    LTR   --> FLC
+    LTR   --> CS
+    FLC   --> CS
+    BEAT  --> CS
+    STSRV --> STATE
 
     style ENTRY_C  fill:#e1f5fe,stroke:#0277bd,color:#01579b
     style BG       fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
@@ -352,6 +390,10 @@ graph TD
     style ENGINE   fill:#fce4ec,stroke:#880e4f,color:#880e4f
     style COMMS    fill:#e0f7fa,stroke:#00838f,color:#006064
     style CCFG     fill:#f9fbe7,stroke:#558b2f,color:#33691e
+    style DS_DEV   fill:#fce4ec,stroke:#880e4f,color:#880e4f
+    style DS_PROD  fill:#fce4ec,stroke:#880e4f,color:#880e4f
+    style STATE    fill:#fce4ec,stroke:#880e4f,color:#880e4f
+    style STSRV    fill:#e0f7fa,stroke:#00838f,color:#006064
     </div>
   </div>
 </section>
@@ -405,6 +447,7 @@ graph TD
         SECAGG["crypto/secure_agg.py\nsplit_into_shares()  stub\nreconstruct_from_shares()  stub"]
         CONSTS["utils/constants.py\nJ_MIN, J_MAX, LRV_MIN\nPARAM_IDX, N_PARAMS\nphysical bounds dicts"]
         LOGCFG["utils/logging_config.py\nconfigure_logging()\nget_logger(name)\nstructlog JSON pipeline"]
+        THEME["utils/theme.py\nLiquidCarbonTheme  LC alias\nBG_PRIMARY BG_SECONDARY SURFACE\nPRIMARY ACCENT ERROR SUCCESS WARNING\nCHART_COLORS list\nRADIUS_SM RADIUS_MD"]
         SCH_AUTH["schemas/auth.py\nTokenRequest\nTokenResponse\nRefreshRequest"]
         SCH_FED["schemas/federation.py\nModelUpdate\nGlobalModel\nFederationRound\nRoundStatus, SiteStatus"]
         SCH_FILT["schemas/filtration.py\nFilterDescriptor\nProcessConditions\nFiltrationRunData  local only\nFiltrationResult"]

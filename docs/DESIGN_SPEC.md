@@ -1,9 +1,9 @@
 # Design Specification
 ## Viral Filtration Federated Learning Platform
 
-**Version:** 2.0  
-**Date:** 2026-08-15  
-**Status:** Implemented (v0.2.0 — data-driven FL branch)
+**Version:** 2.1  
+**Date:** 2026-08-20  
+**Status:** Implemented (v0.2.1 — monitor fixes + LC design system)
 
 ---
 
@@ -79,6 +79,7 @@ Each site runs in a separate network-isolated environment. In Docker dev, this i
 | FluxChart | `server/ui/components/flux_chart.py` | `multi_site=True`: Amin bar chart per site (matplotlib PNG); `multi_site=False`: J(t) line chart |
 | LRVChart | `server/ui/components/lrv_chart.py` | `multi_site=True`: flux ratio bar chart per site (matplotlib PNG) |
 | Settings page | `server/ui/pages/settings.py` | RadioGroup Quorum/TimeWindow; heartbeat field; `PUT /settings` via httpx |
+| Internal API | `server/api/internal.py` | `GET /internal/status` — no auth; read-only `RoundManager.get_status_snapshot()` consumed by co-located Flet dashboard |
 
 ### 2.2 Client — FL Client Application (`client/`)
 
@@ -87,6 +88,7 @@ Each site runs in a separate network-isolated environment. In Docker dev, this i
 | Entry point | `client/main.py` | Wire DataSource (Dev or Prod), start StatusServer, Scheduler, Heartbeat, Flet UI |
 | Configuration | `client/config.py` | Pydantic-settings: site_id, server_url, SSL, timeouts, DP noise, dev_mode, dev physics vars, client_status_port |
 | DataSource | `client/engine/data_source.py` | `DataSource(Protocol)`, `DevDataSource`, `ProdDataSource`, `NoNewDataError` |
+| CSV loader | `client/engine/data_loader.py` | `load_filtration_csv(path)` — returns `(time, flux, tmp)` NumPy arrays; called internally by `ProdDataSource` |
 | LocalTrainer | `client/engine/local_trainer.py` | `__init__(data_source: DataSource)`; Hermia fitting, DP noise, build ModelUpdate payload |
 | Scheduler | `client/engine/scheduler.py` | `_watch_dev()` / `_watch_prod()` / `start_scheduler(data_source)` — drives training loop |
 | TrainingState | `client/engine/state.py` | Shared state: `run_count`, `last_run_at`, `phase`, `flux_times: list[float]`, `flux_vals: list[float]` — flux curve written by LocalTrainer, read by client charts |
@@ -111,6 +113,7 @@ Each site runs in a separate network-isolated environment. In Docker dev, this i
 | Filtration schemas | `shared/schemas/filtration.py` | Filtration run and result types |
 | Constants | `shared/utils/constants.py` | Physical parameter bounds, PARAM_IDX, LRV thresholds |
 | Logging | `shared/utils/logging_config.py` | Structured logging (structlog) |
+| Design tokens | `shared/utils/theme.py` | `LiquidCarbonTheme` class + `LC` alias — all Flet UI design tokens (colours, radii, chart palette); imported by every UI file |
 
 ---
 
