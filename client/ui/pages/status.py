@@ -32,6 +32,10 @@ class StatusPage:
                                     color=LC.TEXT_MUTED)
         self._round_text  = ft.Text("Round  : -", size=13, color=LC.TEXT_PRIMARY)
         self._phase_text  = ft.Text("Phase  : -", size=13, color=LC.TEXT_SECONDARY)
+        self._spinner = ft.ProgressRing(
+            width=18, height=18, stroke_width=2.5,
+            color=LC.PRIMARY, visible=False,
+        )
         self._round_button = ft.Button(
             "Trigger Manual Round",
             icon=ft.Icons.PLAY_ARROW,
@@ -55,6 +59,12 @@ class StatusPage:
             self._round_text.value = f"Round  : {run_num if run_num > 0 else '-'}"
             self._phase_text.value = f"Phase  : {phase}"
 
+    def _set_button_state(self, label: str, icon: str, busy: bool) -> None:
+        self._round_button.text     = label
+        self._round_button.icon     = icon
+        self._round_button.disabled = busy
+        self._spinner.visible       = busy
+
     def _run_round(self) -> None:
         try:
             from client.engine.data_source import DevDataSource, ProdDataSource
@@ -73,15 +83,20 @@ class StatusPage:
 
             trainer = LocalTrainer(data_source=ds)
 
+            self._set_button_state("Connecting…", ft.Icons.SYNC, busy=True)
+            self.page.update()
+
             round_info = self.fl_client.get_current_round()
             this_run = get_state().run_count + 1
             self._round_text.value = f"Round  : {this_run}"
+            self._set_button_state("Training…", ft.Icons.MEMORY, busy=True)
             self._phase_text.value = "Phase  : training"
             self.page.update()
 
             update_state(phase="training", current_round_id=round_info.round_id)
             update = trainer.train_and_prepare_update(round_info.round_id)
 
+            self._set_button_state("Uploading…", ft.Icons.CLOUD_UPLOAD, busy=True)
             update_state(phase="uploading")
             self._phase_text.value = "Phase  : uploading"
             self.page.update()
@@ -105,11 +120,11 @@ class StatusPage:
             update_state(phase="error")
             self._round_text.value = "Round  : ERROR"
             self._phase_text.value = f"Phase  : {str(exc)[:40]}"
-        self._round_button.disabled = False
+        self._set_button_state("Trigger Manual Round", ft.Icons.PLAY_ARROW, busy=False)
         self.page.update()
 
     def _handle_round_click(self, e: Any) -> None:
-        self._round_button.disabled = True
+        self._set_button_state("Starting…", ft.Icons.HOURGLASS_TOP, busy=True)
         self.page.update()
         threading.Thread(target=self._run_round, daemon=True,
                          name="fl-manual-round").start()
@@ -144,7 +159,11 @@ class StatusPage:
                         ], spacing=6),
                         padding=16,
                     )),
-                self._round_button,
+                ft.Row(
+                    [self._round_button, self._spinner],
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
             ],
             spacing=14,
             scroll=ft.ScrollMode.AUTO,

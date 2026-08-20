@@ -55,13 +55,19 @@ class TestStatusPage:
         col = self._make().build()
         assert len([c for c in col.controls if isinstance(c, ft.Card)]) == 2
 
+    def _get_btn_row(self, col: ft.Column) -> ft.Row:
+        """Return the Row that contains button + spinner."""
+        return next(c for c in col.controls if isinstance(c, ft.Row))
+
     def test_build_has_button(self) -> None:
         col = self._make().build()
-        assert any(isinstance(c, ft.Button) for c in col.controls)
+        row = self._get_btn_row(col)
+        assert any(isinstance(c, ft.Button) for c in row.controls)
 
     def test_build_button_icon_play_arrow(self) -> None:
         col = self._make().build()
-        btn = next(c for c in col.controls if isinstance(c, ft.Button))
+        row = self._get_btn_row(col)
+        btn = next(c for c in row.controls if isinstance(c, ft.Button))
         assert btn.icon == ft.Icons.PLAY_ARROW
 
     def test_build_status_text_color_muted(self) -> None:
@@ -110,11 +116,48 @@ class TestStatusPage:
         sp = self._make()
         assert "-" in sp._phase_text.value
 
+    def test_build_has_spinner_in_btn_row(self) -> None:
+        col = self._make().build()
+        row = self._get_btn_row(col)
+        assert any(isinstance(c, ft.ProgressRing) for c in row.controls)
+
+    def test_spinner_initially_not_visible(self) -> None:
+        sp = self._make()
+        assert sp._spinner.visible is False
+
     def test_button_on_click_bound_to_handle_round_click(self) -> None:
         sp = self._make()
         col = sp.build()
-        btn = next(c for c in col.controls if isinstance(c, ft.Button))
+        row = self._get_btn_row(col)
+        btn = next(c for c in row.controls if isinstance(c, ft.Button))
         assert btn.on_click == sp._handle_round_click
+
+    def test_handle_round_click_shows_spinner(self) -> None:
+        sp = self._make()
+        with patch("client.ui.pages.status.threading.Thread", return_value=MagicMock()):
+            sp._handle_round_click(MagicMock())
+        assert sp._spinner.visible is True
+
+    def test_run_round_hides_spinner_on_success(self) -> None:
+        sp = self._make()
+        sp._spinner.visible = True
+        self._run_round_success(sp)
+        assert sp._spinner.visible is False
+
+    def test_run_round_hides_spinner_on_error(self) -> None:
+        sp = self._make()
+        sp._spinner.visible = True
+        sp.fl_client.get_current_round.side_effect = RuntimeError("boom")
+        sp._run_round()
+        assert sp._spinner.visible is False
+
+    def test_set_button_state_updates_all_fields(self) -> None:
+        sp = self._make()
+        sp._set_button_state("Training…", ft.Icons.MEMORY, busy=True)
+        assert sp._round_button.text == "Training…"
+        assert sp._round_button.icon == ft.Icons.MEMORY
+        assert sp._round_button.disabled is True
+        assert sp._spinner.visible is True
 
     def test_button_on_click_spawns_daemon_thread(self) -> None:
         sp = self._make()
