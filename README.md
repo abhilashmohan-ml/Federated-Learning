@@ -36,7 +36,8 @@ Five sites collaboratively train a shared **Physics-Informed Neural Network (PIN
 │   ├── /federation              ├── Per-site monitor               │
 │   ├── /models                  │   (run counts + last-run time)   │
 │   ├── /settings (admin API)    ├── Global model viewer            │
-│   └── /health                  └── Settings (policy controls)     │
+│   ├── /internal (no auth)      └── Settings (policy controls)     │
+│   └── /health                                                      │
 │                                                                   │
 │   Core                         Database (PostgreSQL / SQLite)     │
 │   ├── RoundManager             ├── site_registry                  │
@@ -313,7 +314,7 @@ Run this after a dev session to leave a clean slate before the next `start_all_s
 ```
 viral_fl_project/
 ├── server/               FastAPI aggregation server + Flet dashboard
-│   ├── api/              auth.py  federation.py  models.py  health.py  settings.py
+│   ├── api/              auth.py  federation.py  models.py  health.py  settings.py  internal.py
 │   ├── core/             aggregator.py  round_manager.py  model_registry.py
 │   │                     aggregation_policy.py  site_poller.py
 │   ├── db/               database.py  models.py  migrations/  settings_store.py
@@ -327,7 +328,7 @@ viral_fl_project/
 │   │                     combined_1a.py  pinn.py
 │   ├── crypto/           noise.py (Gaussian DP)  secure_agg.py
 │   ├── schemas/          auth.py  federation.py  filtration.py (Pydantic v2)
-│   └── utils/            constants.py  logging_config.py
+│   └── utils/            constants.py  logging_config.py  theme.py
 ├── scripts/              init_db.py  generate_synthetic_data.py
 │                         run_simulation.py  visualise_results.py
 ├── notebooks/            01_hermia  02_manabe  03_pinn  04_federated_sim
@@ -404,6 +405,7 @@ All federation routes require `Authorization: Bearer <access_token>`.
 | `GET` | `/settings` | Read aggregation policy settings |
 | `PUT` | `/settings` | Update policy (requires `X-Admin-Key` header) |
 | `GET` | `/health/` | Liveness probe (no auth required) |
+| `GET` | `/internal/status` | Round state + per-site phases — no auth; co-located Flet dashboard only |
 
 Full schema with request/response bodies: http://localhost:8000/docs
 
@@ -471,11 +473,12 @@ See [`docs/PRODUCTION.md`](docs/PRODUCTION.md) for the full guide covering:
 |---|---|
 | [`docs/DEV_SETUP.md`](docs/DEV_SETUP.md) | Full developer setup, daily workflow patterns, troubleshooting |
 | [`docs/PRODUCTION.md`](docs/PRODUCTION.md) | Production deployment, TLS, remote site configuration |
-| [`docs/FUNCTIONAL_SPEC.md`](docs/FUNCTIONAL_SPEC.md) | Functional requirements (FR-01…FR-31, DP-01…DP-05) |
+| [`docs/FUNCTIONAL_SPEC.md`](docs/FUNCTIONAL_SPEC.md) | Functional requirements (FR-01…FR-54, DP-01…DP-05) |
 | [`docs/TECHNICAL_SPEC.md`](docs/TECHNICAL_SPEC.md) | REST API reference, physics equations, PINN architecture, config reference |
 | [`docs/DESIGN_SPEC.md`](docs/DESIGN_SPEC.md) | Component design, state machines, auth flow, network isolation |
 | [`docs/DB_SCHEMA.md`](docs/DB_SCHEMA.md) | Database schema, SQLAlchemy models, migration workflow |
 | [`docs/USAGE_GUIDE.md`](docs/USAGE_GUIDE.md) | End-to-end usage guide, dashboards, Jupyter notebooks |
+| [`docs/SYSTEM_DIAGRAM.html`](docs/SYSTEM_DIAGRAM.html) | Interactive Mermaid architecture diagrams (server, client, FL protocol, shared models) |
 
 ---
 

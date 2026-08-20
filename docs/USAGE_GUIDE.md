@@ -245,9 +245,9 @@ All values are read from environment variables (or `.env`). Never hardcode secre
 | `SSL_KEYFILE` | unset | Path to TLS private key (optional). |
 | `SSL_CERTFILE` | unset | Path to TLS certificate (optional). |
 | `REGISTERED_SITES` | — | Comma-separated `site_id:secret` pairs (e.g. `site_1:abc,site_2:def`). Parsed by `init_db.py`. |
-| `SITE_STATUS_URLS` | `""` | Comma-separated `site_id:http://host:port` for SitePoller heartbeat. |
+| `SITE_STATUS_URLS` | `""` | Comma-separated `site_id:http://host:port` for SitePoller heartbeat (e.g. `site_1:http://localhost:9001,site_2:http://localhost:9002`). |
 | `SITE_POLL_SECRET` | `""` | Bearer token sent by SitePoller when polling `/site/status`. Must match each site's `SITE_SECRET`. |
-| `HEARTBEAT_SECONDS` | `30` | SitePoller interval (overridden by `server_settings` DB table). |
+| `HEARTBEAT_SECONDS` | `30` | SitePoller interval in seconds (overridden by `server_settings` DB table via `PUT /settings`). |
 
 ### Client variables
 
@@ -268,6 +268,10 @@ All values are read from environment variables (or `.env`). Never hardcode secre
 | `DEV_J0` | `150.0` | Synthetic initial flux (LMH) — only used when `DEV_MODE=true`. |
 | `DEV_K1` | `0.015` | Combined 1-A k1 parameter — only used when `DEV_MODE=true`. |
 | `DEV_K2` | `0.002` | Combined 1-A k2 parameter — only used when `DEV_MODE=true`. |
+| `DEV_NOISE` | `2.0` | Additive Gaussian noise σ (LMH) — only used when `DEV_MODE=true`. |
+| `DEV_TMP_BASE` | `1.0` | Synthetic TMP base pressure (bar) — only used when `DEV_MODE=true`. |
+| `DEV_JITTER_FRACTION` | `0.05` | Relative jitter applied to synthetic flux — only used when `DEV_MODE=true`. |
+| `CLIENT_STATUS_PORT` | `9001` | Port for the `GET /site/status` FastAPI endpoint (polled by server SitePoller). |
 | `DATA_POLL_SECONDS` | `60` | How often to poll the data directory for new CSVs (prod mode). |
 
 ### Shared FL hyperparameters

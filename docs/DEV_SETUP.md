@@ -884,10 +884,18 @@ Below is the complete reference. Dev defaults are already set in `.env.example`.
 | `LOG_LEVEL` | `DEBUG` | `INFO` or `WARNING` | Dev needs verbose output |
 | `DEV_MODE` | `true` | `false` or unset | Synthetic data vs real CSV |
 | `DEV_J0` | per-site values in launcher | — | Only used when `DEV_MODE=true` |
-| `CLIENT_STATUS_PORT` | `900N` (per site, N=1-5) | configured per deployment | Status server port for SitePoller |
-| `SITE_STATUS_URLS` | `site_1:http://localhost:9001,...` | `site_a:https://site-a.internal:9001,...` | Server-side: which sites to heartbeat-poll |
-| `SITE_POLL_SECRET` | match each site's `SITE_SECRET` | strong unique secret | Auth for server→site status poll |
-| `HEARTBEAT_SECONDS` | `30` | `30–120` | Site poll interval |
+| `DEV_MODE` | `true` | `false` or unset | Enables `DevDataSource` (synthetic data, no CSV needed) |
+| `CLIENT_STATUS_PORT` | `900N` (per site, N=1-5) | configured per deployment | Port for the per-site `GET /site/status` FastAPI endpoint |
+| `DEV_J0` | per-site value in launcher | — | Synthetic initial flux J0 (LMH) — only when `DEV_MODE=true` |
+| `DEV_K1` | per-site value in launcher | — | Combined 1-A k1 parameter — only when `DEV_MODE=true` |
+| `DEV_K2` | per-site value in launcher | — | Combined 1-A k2 parameter — only when `DEV_MODE=true` |
+| `DEV_NOISE` | `2.0` | — | Additive Gaussian noise σ (LMH) — only when `DEV_MODE=true` |
+| `DEV_TMP_BASE` | `1.0` | — | Synthetic TMP base (bar) — only when `DEV_MODE=true` |
+| `DEV_JITTER_FRACTION` | `0.05` | — | Relative jitter on synthetic flux — only when `DEV_MODE=true` |
+| `DATA_POLL_SECONDS` | `60` | `60` | How often `ProdDataSource` polls for new CSV files |
+| `SITE_STATUS_URLS` | `site_1:http://localhost:9001,...` | `site_a:https://site-a.internal:9001,...` | Server-side: comma-separated `site_id:http://host:port` to heartbeat-poll |
+| `SITE_POLL_SECRET` | match each site's `SITE_SECRET` | strong unique secret | Bearer token the server sends when polling `/site/status` |
+| `HEARTBEAT_SECONDS` | `30` | `30–120` | SitePoller poll interval (overridden by DB `server_settings`) |
 
 **Tip:** For federation testing in dev, set `FL_ROUNDS=5` and `MIN_SITES_PER_ROUND=2` in your `.env`. This makes rounds trigger faster and finish quicker.
 

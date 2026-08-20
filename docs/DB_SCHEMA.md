@@ -1,8 +1,8 @@
 # Database Schema
 ## Viral Filtration Federated Learning Platform
 
-**Version:** 2.0  
-**Date:** 2026-08-15  
+**Version:** 2.1  
+**Date:** 2026-08-20  
 **ORM:** SQLAlchemy 2.x (asyncio) — `server/db/models.py`  
 **Migrations:** Alembic — `server/db/migrations/`  
 **Development DB:** SQLite (aiosqlite)  
@@ -47,7 +47,7 @@ Populated by `scripts/init_db.py` at first startup.
 
 **Notes:**
 - `secret_hash` is never logged and never returned by any API
-- `last_seen` is updated on each successful `/auth/token` call (planned — not yet implemented in v0.1.0)
+- `last_seen` is updated on each successful `/auth/token` call (planned — not yet implemented in current version)
 - bcrypt work factor: passlib default (12 rounds)
 
 **SQLAlchemy definition:**
