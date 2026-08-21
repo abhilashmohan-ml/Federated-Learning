@@ -13,6 +13,7 @@ from shared.models.hermia import (
     fit_all_models,
     compute_flux_ratio,
     compute_amin,
+    predict_hermia_model,
 )
 
 
@@ -265,3 +266,49 @@ class TestComputeAmin:
 
     def test_returns_float(self) -> None:
         assert isinstance(compute_amin(10.0, 80.0, 2.0), float)
+
+
+# ── predict_hermia_model ──────────────────────────────────────────────────────
+
+class TestPredictHermiaModel:
+    def _t(self) -> np.ndarray:
+        return np.array([0.0, 10.0, 20.0, 30.0])
+
+    def test_standard_blocking(self) -> None:
+        j = predict_hermia_model("standard", {"J0": 100.0, "ks": 0.01}, self._t())
+        assert j[0] == pytest.approx(100.0)
+        assert j[-1] < j[0]  # flux declines
+
+    def test_complete_blocking(self) -> None:
+        j = predict_hermia_model("complete", {"J0": 100.0, "kc": 0.02}, self._t())
+        assert j[0] == pytest.approx(100.0)
+        assert j[-1] < j[0]
+
+    def test_intermediate_blocking(self) -> None:
+        j = predict_hermia_model(
+            "intermediate", {"J0": 100.0, "ki": 1e-4}, self._t()
+        )
+        assert j[0] == pytest.approx(100.0)
+        assert j[-1] < j[0]
+
+    def test_cake_filtration(self) -> None:
+        j = predict_hermia_model("cake", {"J0": 100.0, "kcf": 1e-6}, self._t())
+        assert j[0] == pytest.approx(100.0)
+        assert j[-1] < j[0]
+
+    def test_combined_1a(self) -> None:
+        j = predict_hermia_model(
+            "combined_1a", {"J0": 100.0, "k1": 0.01, "k2": 0.001}, self._t()
+        )
+        assert j[0] == pytest.approx(100.0)
+        assert j[-1] < j[0]
+
+    def test_unknown_model_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="Unknown Hermia model"):
+            predict_hermia_model("bogus", {"J0": 100.0}, self._t())
+
+    def test_returns_ndarray_same_length_as_input(self) -> None:
+        t = np.linspace(0, 60, 20)
+        j = predict_hermia_model("complete", {"J0": 100.0, "kc": 0.01}, t)
+        assert isinstance(j, np.ndarray)
+        assert len(j) == 20
