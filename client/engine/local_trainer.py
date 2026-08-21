@@ -58,7 +58,7 @@ import numpy as np
 from client.config              import get_client_settings
 from client.engine.data_source  import DataSource
 from client.engine.state        import update_state
-from shared.models.hermia       import fit_all_models, compute_flux_ratio, compute_amin
+from shared.models.hermia       import fit_all_models, compute_flux_ratio, compute_amin, predict_hermia_model
 from shared.models.manabe       import capture_probability, compute_lrv
 from shared.crypto.noise        import add_gaussian_noise
 from shared.schemas.federation  import ModelUpdate
@@ -127,6 +127,12 @@ class LocalTrainer:
             list(results.values())[0],
         )
 
+        # Collect all models' RMSE/AIC/BIC for the server's model-comparison chart
+        model_scores: Dict[str, Dict[str, float]] = {
+            name: {"rmse": r.rmse, "aic": r.aic, "bic": r.bic}
+            for name, r in results.items()
+        }
+
         # ── Step 4: Compute derived process metrics ─────────────────────────────
         flux_ratio = compute_flux_ratio(flux)
         avg_flux   = float(np.mean(flux))   # LMH average over the whole run
@@ -152,6 +158,13 @@ class LocalTrainer:
             "best_bic":   best.bic,          # BIC of the selected model
             "lrv":        lrv,              # log reduction value (Manabe, mean flux)
         }
+
+        # Generate 20-point fitted J(t) curve from the best model (model PREDICTION, not raw data).
+        # This is safe to transmit: it derives from fitted parameters, not raw measurements.
+        t_fit_arr = np.linspace(0.0, float(time[-1]), 20)
+        j_fit_arr = predict_hermia_model(best.model_name, best.params, t_fit_arr)
+        fitted_flux_t: List[float] = [float(v) for v in t_fit_arr]
+        fitted_flux_j: List[float] = [float(v) for v in j_fit_arr]
 
         # ── Step 5: Build delta_W from fitted model parameters ─────────────────
         # We package the best model's fitted parameter values as the "weight delta."
@@ -196,4 +209,7 @@ class LocalTrainer:
             dp_noise_sigma=self.settings.dp_noise_sigma, # auditable DP parameter
             hermia_best_model=best.model_name,           # which model won ("combined_1a", etc.)
             local_metrics=local_metrics,                 # dashboard metrics
+            fitted_flux_t=fitted_flux_t,                 # 20-pt time array for fitted J(t) curve
+            fitted_flux_j=fitted_flux_j,                 # 20-pt fitted flux array (model prediction)
+            model_scores=model_scores,                   # per-model {rmse, aic, bic} for comparison
         )
