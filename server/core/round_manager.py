@@ -111,6 +111,10 @@ class RoundManager:
         self._site_metrics:     Dict[str, Dict[str, float]]  = {}
         # Per-site best Hermia model name (string, kept separate from numeric metrics).
         self._site_best_models: Dict[str, str]               = {}
+        # Per-site fitted J(t) preview curve — {"t": [...], "j": [...]} from best Hermia model.
+        self._site_fitted_curves: Dict[str, Dict[str, List[float]]] = {}
+        # Per-site Hermia model comparison scores — {model_name: {"rmse", "aic", "bic"}}.
+        self._site_model_scores:  Dict[str, Dict[str, Dict[str, float]]] = {}
         # Latest global metrics from the most recent successful aggregation.
         self._global_metrics:   Dict[str, float]             = {}
 
@@ -227,6 +231,15 @@ class RoundManager:
             self._site_metrics[update.site_id] = dict(update.local_metrics)
         if update.hermia_best_model:
             self._site_best_models[update.site_id] = update.hermia_best_model
+        if update.fitted_flux_t and update.fitted_flux_j:
+            self._site_fitted_curves[update.site_id] = {
+                "t": list(update.fitted_flux_t),
+                "j": list(update.fitted_flux_j),
+            }
+        if update.model_scores:
+            self._site_model_scores[update.site_id] = {
+                m: dict(s) for m, s in update.model_scores.items()
+            }
 
         log.info(
             "update_received",
@@ -390,6 +403,13 @@ class RoundManager:
                 site: dict(m) for site, m in self._site_metrics.items()
             },
             "site_best_models": dict(self._site_best_models),
+            "site_fitted_curves": {
+                site: dict(c) for site, c in self._site_fitted_curves.items()
+            },
+            "site_model_scores": {
+                site: {m: dict(s) for m, s in ms.items()}
+                for site, ms in self._site_model_scores.items()
+            },
             "global_metrics":      dict(self._global_metrics),
         }
 

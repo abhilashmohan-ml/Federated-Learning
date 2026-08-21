@@ -516,6 +516,96 @@ class TestRoundManager:
         rm.sync_site_phase("site_x", "uploading")
         assert rm._site_statuses["site_x"] == SiteStatus.UPLOADING
 
+    # ── set_policy ────────────────────────────────────────────────────────────
+
+    def test_set_policy_replaces_policy(self) -> None:
+        from server.core.aggregation_policy import TimeWindowPolicy
+        rm = self._make_rm()
+        new_policy = TimeWindowPolicy(window_seconds=60)
+        rm.set_policy(new_policy)
+        assert rm._policy is new_policy
+
+    # ── get_or_create_round ───────────────────────────────────────────────────
+
+    def test_get_or_create_round_when_no_round_starts_new(self) -> None:
+        """With no round ever started (_current_round_id == 0), should create one."""
+        async def _run() -> FederationRound:
+            rm = self._make_rm()
+            return await rm.get_or_create_round()
+        r = asyncio.run(_run())
+        assert isinstance(r, FederationRound)
+        assert r.round_id == 1
+
+    def test_get_or_create_round_returns_existing_collecting_round(self) -> None:
+        """When a COLLECTING round is open, return it without creating a new one."""
+        async def _run() -> tuple[int, int]:
+            rm = self._make_rm()
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r1 = await rm.start_new_round()
+            r2 = await rm.get_or_create_round()
+            return r1.round_id, r2.round_id
+        id1, id2 = asyncio.run(_run())
+        assert id1 == id2
+
+    def test_get_or_create_round_starts_new_when_current_not_collecting(self) -> None:
+        """If the current round is COMPLETE, get_or_create_round must start a new one."""
+        async def _run() -> FederationRound:
+            rm = self._make_rm()
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r1 = await rm.start_new_round()
+            rm._rounds[r1.round_id].status = RoundStatus.COMPLETE
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                return await rm.get_or_create_round()
+        r = asyncio.run(_run())
+        assert r.round_id == 2
+
+    # ── sync_site_run_info ────────────────────────────────────────────────────
+
+    def test_sync_site_run_info_updates_count_and_timestamp(self) -> None:
+        rm = self._make_rm()
+        ts = datetime.now(timezone.utc)
+        rm.sync_site_run_info("site_1", 5, ts)
+        assert rm._site_run_counts["site_1"] == 5
+        assert rm._site_last_run_at["site_1"] == ts
+
+    def test_sync_site_run_info_updates_count_last_run_none(self) -> None:
+        """last_run_at=None: count updates but timestamp entry is not created."""
+        rm = self._make_rm()
+        rm.sync_site_run_info("site_1", 3, None)
+        assert rm._site_run_counts["site_1"] == 3
+        assert "site_1" not in rm._site_last_run_at
+
+    def test_sync_site_run_info_ignores_lower_count(self) -> None:
+        """A smaller remote count must not overwrite a larger local count."""
+        rm = self._make_rm()
+        rm._site_run_counts["site_1"] = 10
+        rm.sync_site_run_info("site_1", 2, None)
+        assert rm._site_run_counts["site_1"] == 10
+
+    # ── mark_site_error ───────────────────────────────────────────────────────
+
+    def test_mark_site_error_sets_error_status(self) -> None:
+        rm = self._make_rm()
+        rm.mark_site_error("site_2")
+        assert rm._site_statuses["site_2"] == SiteStatus.ERROR
+
+    # ── local_metrics stored via receive_update ───────────────────────────────
+
+    def test_receive_update_stores_local_metrics(self) -> None:
+        """An update with non-empty local_metrics must persist them into _site_metrics."""
+        async def _run() -> dict:
+            rm = self._make_rm(min_sites=10)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            await rm.receive_update(
+                _make_update("site_1", round_id=r.round_id,
+                             metrics={"flux_ratio": 0.8, "amin_m2": 0.05})
+            )
+            return rm._site_metrics.get("site_1", {})
+        metrics = asyncio.run(_run())
+        assert metrics["flux_ratio"] == pytest.approx(0.8)
+        assert metrics["amin_m2"] == pytest.approx(0.05)
+
 
 # ── get_round_manager singleton ───────────────────────────────────────────────
 
@@ -587,3 +677,106 @@ class TestGetStatusSnapshot:
 
         snap = asyncio.run(_run())
         assert "site_1" in snap["participating_sites"]
+
+
+# ── RoundManagerFittedCurves ──────────────────────────────────────────────────
+
+class TestRoundManagerFittedCurves:
+    def _make_rm(self, min_sites: int = 5) -> RoundManager:
+        with patch("server.core.round_manager.get_settings",
+                   return_value=_mock_settings(min_sites=min_sites)):
+            return RoundManager()
+
+    def _make_update_with_curve(
+        self,
+        site_id: str = "site_1",
+        round_id: int = 1,
+    ) -> ModelUpdate:
+        return ModelUpdate(
+            site_id=site_id,
+            round_id=round_id,
+            n_samples=20,
+            delta_W={"hermia_params": [100.0, 0.01, 0.001]},
+            fitted_flux_t=[float(i) * 3 for i in range(20)],
+            fitted_flux_j=[100.0 - i * 1.5 for i in range(20)],
+            model_scores={
+                "combined_1a": {"rmse": 1.2, "aic": -50.0, "bic": -44.0},
+                "standard":    {"rmse": 3.5, "aic": -30.0, "bic": -26.0},
+            },
+        )
+
+    def test_receive_update_stores_fitted_curve(self) -> None:
+        async def _run() -> dict:
+            rm = self._make_rm(min_sites=10)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            await rm.receive_update(self._make_update_with_curve(round_id=r.round_id))
+            return rm._site_fitted_curves.get("site_1", {})
+
+        curve = asyncio.run(_run())
+        assert len(curve.get("t", [])) == 20
+        assert len(curve.get("j", [])) == 20
+        assert curve["t"][0] == pytest.approx(0.0)
+
+    def test_receive_update_stores_model_scores(self) -> None:
+        async def _run() -> dict:
+            rm = self._make_rm(min_sites=10)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            await rm.receive_update(self._make_update_with_curve(round_id=r.round_id))
+            return rm._site_model_scores.get("site_1", {})
+
+        scores = asyncio.run(_run())
+        assert "combined_1a" in scores
+        assert "standard" in scores
+        assert scores["combined_1a"]["rmse"] == pytest.approx(1.2)
+
+    def test_snapshot_contains_site_fitted_curves(self) -> None:
+        async def _run() -> dict:
+            rm = self._make_rm(min_sites=10)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            await rm.receive_update(self._make_update_with_curve(round_id=r.round_id))
+            return await rm.get_status_snapshot()
+
+        snap = asyncio.run(_run())
+        assert "site_fitted_curves" in snap
+        assert "site_1" in snap["site_fitted_curves"]
+        assert len(snap["site_fitted_curves"]["site_1"]["t"]) == 20
+
+    def test_snapshot_contains_site_model_scores(self) -> None:
+        async def _run() -> dict:
+            rm = self._make_rm(min_sites=10)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            await rm.receive_update(self._make_update_with_curve(round_id=r.round_id))
+            return await rm.get_status_snapshot()
+
+        snap = asyncio.run(_run())
+        assert "site_model_scores" in snap
+        assert "site_1" in snap["site_model_scores"]
+        assert snap["site_model_scores"]["site_1"]["combined_1a"]["aic"] == pytest.approx(-50.0)
+
+    def test_update_with_empty_curve_not_stored(self) -> None:
+        """An update with no fitted curve (default empty lists) must not add an entry."""
+        async def _run() -> dict:
+            rm = self._make_rm(min_sites=10)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            # ModelUpdate with default empty fitted_flux_t/j
+            await rm.receive_update(_make_update("site_1", round_id=r.round_id))
+            return rm._site_fitted_curves
+
+        curves = asyncio.run(_run())
+        assert "site_1" not in curves
+
+    def test_update_with_empty_model_scores_not_stored(self) -> None:
+        async def _run() -> dict:
+            rm = self._make_rm(min_sites=10)
+            with patch("asyncio.create_task", return_value=MagicMock()):
+                r = await rm.start_new_round()
+            await rm.receive_update(_make_update("site_1", round_id=r.round_id))
+            return rm._site_model_scores
+
+        scores = asyncio.run(_run())
+        assert "site_1" not in scores
