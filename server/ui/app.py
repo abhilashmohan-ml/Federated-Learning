@@ -158,9 +158,17 @@ def main(page: ft.Page) -> None:
                             )
 
                         # Update Site Monitor and comparative charts with per-site metrics
-                        site_metrics     = data.get("site_metrics", {})
-                        site_best_models = data.get("site_best_models", {})
-                        pages[1].update_data(site_metrics, site_best_models, rid)
+                        site_metrics       = data.get("site_metrics", {})
+                        site_best_models   = data.get("site_best_models", {})
+                        site_fitted_curves = data.get("site_fitted_curves", {})
+                        site_model_scores  = data.get("site_model_scores", {})
+                        pages[1].update_data(
+                            site_metrics,
+                            site_best_models,
+                            rid,
+                            site_fitted_curves=site_fitted_curves,
+                            site_model_scores=site_model_scores,
+                        )
                         if site_metrics:
                             graphs_pg.update(site_metrics)
 

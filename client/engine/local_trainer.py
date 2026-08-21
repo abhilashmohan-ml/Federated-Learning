@@ -49,20 +49,26 @@ PYTHON CONCEPT: generator expression with next()
   True. The second argument to next() is a fallback value if none is selected.
   This is more concise than a for loop with a break.
 """
+
 from __future__ import annotations
 
 from typing import Dict, List
 
 import numpy as np
 
-from client.config              import get_client_settings
-from client.engine.data_source  import DataSource
-from client.engine.state        import update_state
-from shared.models.hermia       import fit_all_models, compute_flux_ratio, compute_amin
-from shared.models.manabe       import capture_probability, compute_lrv
-from shared.crypto.noise        import add_gaussian_noise
-from shared.schemas.federation  import ModelUpdate
-from shared.utils.constants     import MANABE_LAMBDA_DEFAULT, MANABE_JCRIT_DEFAULT
+from client.config import get_client_settings
+from client.engine.data_source import DataSource
+from client.engine.state import update_state
+from shared.models.hermia import (
+    fit_all_models,
+    compute_flux_ratio,
+    compute_amin,
+    predict_hermia_model,
+)
+from shared.models.manabe import capture_probability, compute_lrv
+from shared.crypto.noise import add_gaussian_noise
+from shared.schemas.federation import ModelUpdate
+from shared.utils.constants import MANABE_LAMBDA_DEFAULT, MANABE_JCRIT_DEFAULT
 from shared.utils.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -127,9 +133,14 @@ class LocalTrainer:
             list(results.values())[0],
         )
 
+        # Collect all models' RMSE/AIC/BIC for the server's model-comparison chart
+        model_scores: Dict[str, Dict[str, float]] = {
+            name: {"rmse": r.rmse, "aic": r.aic, "bic": r.bic} for name, r in results.items()
+        }
+
         # ── Step 4: Compute derived process metrics ─────────────────────────────
         flux_ratio = compute_flux_ratio(flux)
-        avg_flux   = float(np.mean(flux))   # LMH average over the whole run
+        avg_flux = float(np.mean(flux))  # LMH average over the whole run
 
         # Minimum filter area for a 10-litre batch given this site's average flux
         amin = compute_amin(
@@ -140,18 +151,25 @@ class LocalTrainer:
 
         # LRV from Manabe model using mean operating flux and membrane defaults.
         # capture_probability uses Pc = 1 - exp(-λ·J/J_crit); compute_lrv gives log10(1/(1-Pc)).
-        Pc  = capture_probability(avg_flux, MANABE_LAMBDA_DEFAULT, MANABE_JCRIT_DEFAULT)
+        Pc = capture_probability(avg_flux, MANABE_LAMBDA_DEFAULT, MANABE_JCRIT_DEFAULT)
         lrv = compute_lrv(Pc)
 
         # Collect all metrics we want to report to the server dashboard
         local_metrics: Dict[str, float] = {
-            "flux_rmse":  best.rmse,        # how well the best model fit the data
-            "flux_ratio": flux_ratio,        # J_final / J_initial (fouling severity)
-            "amin_m2":    amin,              # minimum filter area in m²
-            "best_aic":   best.aic,          # AIC of the selected model
-            "best_bic":   best.bic,          # BIC of the selected model
-            "lrv":        lrv,              # log reduction value (Manabe, mean flux)
+            "flux_rmse": best.rmse,  # how well the best model fit the data
+            "flux_ratio": flux_ratio,  # J_final / J_initial (fouling severity)
+            "amin_m2": amin,  # minimum filter area in m²
+            "best_aic": best.aic,  # AIC of the selected model
+            "best_bic": best.bic,  # BIC of the selected model
+            "lrv": lrv,  # log reduction value (Manabe, mean flux)
         }
+
+        # Generate 20-point fitted J(t) curve from the best model (model PREDICTION, not raw data).
+        # This is safe to transmit: it derives from fitted parameters, not raw measurements.
+        t_fit_arr = np.linspace(0.0, float(time[-1]), 20)
+        j_fit_arr = predict_hermia_model(best.model_name, best.params, t_fit_arr)
+        fitted_flux_t: List[float] = [float(v) for v in t_fit_arr]
+        fitted_flux_j: List[float] = [float(v) for v in j_fit_arr]
 
         # ── Step 5: Build delta_W from fitted model parameters ─────────────────
         # We package the best model's fitted parameter values as the "weight delta."
@@ -191,9 +209,12 @@ class LocalTrainer:
         return ModelUpdate(
             site_id=self.settings.site_id,
             round_id=round_id,
-            n_samples=len(flux),                         # number of data points (for weighting)
-            delta_W=delta_W,                             # noisy parameter changes
-            dp_noise_sigma=self.settings.dp_noise_sigma, # auditable DP parameter
-            hermia_best_model=best.model_name,           # which model won ("combined_1a", etc.)
-            local_metrics=local_metrics,                 # dashboard metrics
+            n_samples=len(flux),  # number of data points (for weighting)
+            delta_W=delta_W,  # noisy parameter changes
+            dp_noise_sigma=self.settings.dp_noise_sigma,  # auditable DP parameter
+            hermia_best_model=best.model_name,  # which model won ("combined_1a", etc.)
+            local_metrics=local_metrics,  # dashboard metrics
+            fitted_flux_t=fitted_flux_t,  # 20-pt time array for fitted J(t) curve
+            fitted_flux_j=fitted_flux_j,  # 20-pt fitted flux array (model prediction)
+            model_scores=model_scores,  # per-model {rmse, aic, bic} for comparison
         )

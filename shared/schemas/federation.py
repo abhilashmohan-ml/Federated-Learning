@@ -139,6 +139,12 @@ class ModelUpdate(BaseModel):
     dp_noise_sigma:    float = 0.0                  # DP noise level applied (for audit trail)
     hermia_best_model: str   = "combined_1a"        # best-fit Hermia model for this run
     local_metrics:     Dict[str, float] = Field(default_factory=dict)  # rmse, lrv, etc.
+    fitted_flux_t: List[float] = Field(default_factory=list)
+    # time points (minutes) for 20-pt fitted J(t) preview curve (model prediction, NOT raw data)
+    fitted_flux_j: List[float] = Field(default_factory=list)
+    # fitted flux values (LMH) corresponding to fitted_flux_t
+    model_scores: Dict[str, Dict[str, float]] = Field(default_factory=dict)
+    # {model_name: {"rmse": ..., "aic": ..., "bic": ...}} for all fitted Hermia models
     timestamp:         datetime = Field(
         # default_factory calls datetime.now(timezone.utc) each time a new
         # ModelUpdate is created, so every update gets the current time.

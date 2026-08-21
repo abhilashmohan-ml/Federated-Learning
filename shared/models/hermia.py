@@ -490,3 +490,53 @@ def compute_amin(
     if avg_flux_lmh <= 0 or operation_time_h <= 0:
         return float("inf")   # undefined — cannot filter with zero flux or time
     return target_throughput_L / (avg_flux_lmh * operation_time_h)
+
+
+def predict_hermia_model(
+    model_name: str,
+    params: Dict[str, float],
+    t: np.ndarray,
+) -> np.ndarray:
+    """
+    Evaluate a fitted Hermia model at time points ``t``.
+
+    Parameters
+    ----------
+    model_name : str
+        One of "standard", "complete", "intermediate", "cake", "combined_1a".
+    params : dict
+        Fitted parameter dict from HermiaResult.params.
+    t : np.ndarray
+        Time points in minutes.
+
+    Returns
+    -------
+    np.ndarray
+        Predicted flux values in LMH, same length as ``t``.
+
+    Raises
+    ------
+    ValueError
+        If ``model_name`` is not a known Hermia model.
+
+    Example
+    -------
+    >>> t = np.array([0.0, 10.0, 20.0])
+    >>> j = predict_hermia_model("standard", {"J0": 100.0, "ks": 0.01}, t)
+    >>> j[0]  # initial flux
+    100.0
+    """
+    if model_name == "standard":
+        return params["J0"] / (1.0 + params["ks"] * t) ** 2
+    if model_name == "complete":
+        return params["J0"] * np.exp(-params["kc"] * t)
+    if model_name == "intermediate":
+        return params["J0"] / (1.0 + params["J0"] * params["ki"] * t)
+    if model_name == "cake":
+        denom = np.maximum(1.0 + params["J0"] ** 2 * params["kcf"] * t, 1e-12)
+        return params["J0"] / np.sqrt(denom)
+    if model_name == "combined_1a":
+        return (params["J0"] / (1.0 + params["k1"] * t) ** 2) * np.exp(
+            -params["k2"] * t
+        )
+    raise ValueError(f"Unknown Hermia model: {model_name!r}")

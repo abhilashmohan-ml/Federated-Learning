@@ -451,3 +451,46 @@ class TestSiteMonitorPage:
         assert sm._selected_site == "site_3"
         assert sm._val_amin.value == "0.0030"
         page.update.assert_called_once()
+
+    def test_update_data_with_fitted_curve_populates_flux_chart(self) -> None:
+        sm = SiteMonitorPage(_mock_page())
+        fitted_curves = {"site_1": {"t": [0.0, 5.0, 10.0], "j": [100.0, 80.0, 65.0]}}
+        model_scores  = {
+            "site_1": {
+                "intermediate": {"rmse": 1.8, "aic": 50.0, "bic": 53.0},
+                "cake":         {"rmse": 2.0, "aic": 52.0, "bic": 55.0},
+            }
+        }
+        sm.update_data(
+            {"site_1": {"lrv": 4.5, "flux_ratio": 0.5}},
+            {"site_1": "intermediate"},
+            3,
+            site_fitted_curves=fitted_curves,
+            site_model_scores=model_scores,
+        )
+        assert sm._flux_chart._img.visible is True
+        assert sm._hermia_chart._img.visible is True
+        assert sm._hermia_chart._table.visible is True
+
+    def test_update_data_none_kwargs_preserve_existing_state(self) -> None:
+        sm = SiteMonitorPage(_mock_page())
+        fitted_curves = {"site_1": {"t": [0.0, 5.0], "j": [100.0, 80.0]}}
+        sm.update_data({}, {}, 1, site_fitted_curves=fitted_curves)
+        # Second call with None should preserve the curves
+        sm.update_data({}, {}, 2)
+        assert sm._site_fitted_curves == fitted_curves
+
+    def test_on_site_change_triggers_refresh_charts(self) -> None:
+        page = _mock_page()
+        sm = SiteMonitorPage(page)
+        fitted_curves = {"site_2": {"t": [0.0, 5.0, 10.0], "j": [90.0, 70.0, 55.0]}}
+        sm.update_data(
+            {"site_2": {"lrv": 3.5, "flux_ratio": 0.4}},
+            {"site_2": "cake"},
+            1,
+            site_fitted_curves=fitted_curves,
+        )
+        e = MagicMock()
+        e.control.value = "site_2"
+        sm._on_site_change(e)
+        assert sm._flux_chart._img.visible is True

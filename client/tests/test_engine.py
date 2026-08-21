@@ -82,9 +82,16 @@ class TestLoadFiltrationCSV:
 
 def _make_hermia_result(selected: bool = True, model_name: str = "combined_1a"):
     from shared.models.hermia import HermiaResult
+    _model_params = {
+        "combined_1a":  {"J0": 100.0, "k1": 0.05, "k2": 0.005},
+        "standard":     {"J0": 100.0, "ks": 0.01},
+        "complete":     {"J0": 100.0, "kc": 0.01},
+        "intermediate": {"J0": 100.0, "ki": 1e-4},
+        "cake":         {"J0": 100.0, "kcf": 1e-6},
+    }
     return HermiaResult(
         model_name=model_name,
-        params={"J0": 100.0, "k1": 0.05, "k2": 0.005},
+        params=_model_params.get(model_name, {"J0": 100.0, "k1": 0.05, "k2": 0.005}),
         aic=-50.0, bic=-45.0, rmse=1.2, selected=selected,
     )
 
@@ -222,6 +229,73 @@ class TestLocalTrainer:
             LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(round_id=1)
 
         assert noise_called_with.get("sigma") == pytest.approx(0.05)
+
+    def test_fitted_curve_has_twenty_points(self) -> None:
+        mock_result = _make_hermia_result(selected=True)
+
+        with patch("client.engine.local_trainer.get_client_settings",
+                   return_value=_mock_client_settings()), \
+             patch("client.engine.local_trainer.fit_all_models",
+                   return_value={"combined_1a": mock_result}), \
+             patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
+             patch("client.engine.local_trainer.compute_amin", return_value=0.05), \
+             patch("client.engine.local_trainer.add_gaussian_noise",
+                   side_effect=lambda w, sigma: w):
+            from client.engine.local_trainer import LocalTrainer
+            update = LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(1)
+
+        assert len(update.fitted_flux_t) == 20
+        assert len(update.fitted_flux_j) == 20
+        assert update.fitted_flux_t[0] == pytest.approx(0.0)
+        assert update.fitted_flux_t[-1] > 0.0  # last point = t_max
+        assert all(j > 0 for j in update.fitted_flux_j)
+
+    def test_fitted_curve_t_spans_full_range(self) -> None:
+        """First time point is 0; last equals data t_max."""
+        mock_result = _make_hermia_result(selected=True)
+        n = 20  # rows in mock DataSource
+
+        with patch("client.engine.local_trainer.get_client_settings",
+                   return_value=_mock_client_settings()), \
+             patch("client.engine.local_trainer.fit_all_models",
+                   return_value={"combined_1a": mock_result}), \
+             patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
+             patch("client.engine.local_trainer.compute_amin", return_value=0.05), \
+             patch("client.engine.local_trainer.add_gaussian_noise",
+                   side_effect=lambda w, sigma: w):
+            from client.engine.local_trainer import LocalTrainer
+            update = LocalTrainer(data_source=self._mock_ds(n=n)).train_and_prepare_update(1)
+
+        # _mock_ds produces time = [0, 3, 6, ..., 57] (n=20 → t_max=57)
+        assert update.fitted_flux_t[0] == pytest.approx(0.0)
+        assert update.fitted_flux_t[-1] == pytest.approx((n - 1) * 3.0)
+
+    def test_model_scores_contains_all_fitted_models(self) -> None:
+        """model_scores must have one entry per model returned by fit_all_models."""
+        results = {
+            "combined_1a": _make_hermia_result(selected=True, model_name="combined_1a"),
+            "standard":    _make_hermia_result(selected=False, model_name="standard"),
+        }
+        results["standard"].rmse = 5.0
+        results["standard"].aic = -20.0
+        results["standard"].bic = -18.0
+
+        with patch("client.engine.local_trainer.get_client_settings",
+                   return_value=_mock_client_settings()), \
+             patch("client.engine.local_trainer.fit_all_models", return_value=results), \
+             patch("client.engine.local_trainer.compute_flux_ratio", return_value=0.8), \
+             patch("client.engine.local_trainer.compute_amin", return_value=0.05), \
+             patch("client.engine.local_trainer.add_gaussian_noise",
+                   side_effect=lambda w, sigma: w):
+            from client.engine.local_trainer import LocalTrainer
+            update = LocalTrainer(data_source=self._mock_ds()).train_and_prepare_update(1)
+
+        assert set(update.model_scores.keys()) == {"combined_1a", "standard"}
+        assert "rmse" in update.model_scores["standard"]
+        assert "aic"  in update.model_scores["standard"]
+        assert "bic"  in update.model_scores["standard"]
+        assert update.model_scores["standard"]["rmse"] == pytest.approx(5.0)
+        assert update.model_scores["standard"]["aic"]  == pytest.approx(-20.0)
 
 
 # ── scheduler._watch_dev ──────────────────────────────────────────────────────

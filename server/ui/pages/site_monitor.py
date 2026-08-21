@@ -1,22 +1,27 @@
-"""Site Monitor page — per-site model metrics and live charts."""
+"""Site Monitor page — per-site model metrics, J(t) chart, LRV scatter, Hermia comparison."""
 from __future__ import annotations
 
+from typing import Optional
+
 import flet as ft
-from server.ui.components.flux_chart import FluxChart
-from server.ui.components.lrv_chart  import LRVChart
+
+from server.ui.components.flux_chart             import FluxChart
+from server.ui.components.lrv_chart              import LRVChart
+from server.ui.components.hermia_comparison_chart import HermiaComparisonChart
 from shared.utils.theme import LC
 
 
 class SiteMonitorPage:
     def __init__(self, page: ft.Page) -> None:
         self.page = page
-        self._site_metrics:     dict[str, dict[str, float]] = {}
-        self._site_best_models: dict[str, str]              = {}
-        self._current_round_id: int                         = 0
-        self._selected_site:    str                         = "site_1"
-        self._built: ft.Control | None                      = None
+        self._site_metrics:      dict[str, dict[str, float]]              = {}
+        self._site_best_models:  dict[str, str]                           = {}
+        self._site_fitted_curves: dict[str, dict[str, list[float]]]       = {}
+        self._site_model_scores:  dict[str, dict[str, dict[str, float]]]  = {}
+        self._current_round_id:  int = 0
+        self._selected_site:     str = "site_1"
+        self._built: Optional[ft.Control] = None
 
-        # Persistent value-text refs so poll loop can mutate them in-place.
         self._val_lrv        = ft.Text("--", size=22, weight=ft.FontWeight.BOLD,
                                        color=LC.TEXT_PRIMARY)
         self._val_amin       = ft.Text("--", size=22, weight=ft.FontWeight.BOLD,
@@ -28,9 +33,9 @@ class SiteMonitorPage:
         self._val_round      = ft.Text("--", size=22, weight=ft.FontWeight.BOLD,
                                        color=LC.TEXT_PRIMARY)
 
-        # Persistent chart instances — updated in-place by poll loop.
-        self._flux_chart = FluxChart(multi_site=False)
-        self._lrv_chart  = LRVChart(multi_site=False)
+        self._flux_chart     = FluxChart(multi_site=False)
+        self._lrv_chart      = LRVChart(multi_site=False)
+        self._hermia_chart   = HermiaComparisonChart()
 
     # ------------------------------------------------------------------
     # Poll-loop entry point
@@ -38,16 +43,24 @@ class SiteMonitorPage:
 
     def update_data(
         self,
-        site_metrics:     dict[str, dict[str, float]],
-        site_best_models: dict[str, str],
-        current_round_id: int,
+        site_metrics:       dict[str, dict[str, float]],
+        site_best_models:   dict[str, str],
+        current_round_id:   int,
+        site_fitted_curves: Optional[dict[str, dict[str, list[float]]]] = None,
+        site_model_scores:  Optional[dict[str, dict[str, dict[str, float]]]] = None,
     ) -> None:
         """Refresh tiles and charts with latest server data. Called every 5 s."""
-        self._site_metrics     = site_metrics
-        self._site_best_models = site_best_models
-        self._current_round_id = current_round_id
+        self._site_metrics      = site_metrics
+        self._site_best_models  = site_best_models
+        self._current_round_id  = current_round_id
+        if site_fitted_curves:
+            self._site_fitted_curves = site_fitted_curves
+        if site_model_scores:
+            self._site_model_scores = site_model_scores
+
         self._refresh_tiles()
-        self._flux_chart.update_data(site_metrics)
+        self._refresh_charts()
+        # LRV scatter uses all sites regardless of dropdown selection
         self._lrv_chart.update_data(site_metrics)
 
     # ------------------------------------------------------------------
@@ -65,9 +78,23 @@ class SiteMonitorPage:
         self._val_best_model.value = self._site_best_models.get(self._selected_site, "--")
         self._val_round.value      = str(self._current_round_id) if self._current_round_id else "--"
 
+    def _refresh_charts(self) -> None:
+        curve      = self._site_fitted_curves.get(self._selected_site, {})
+        scores     = self._site_model_scores.get(self._selected_site, {})
+        best_model = self._site_best_models.get(self._selected_site, "")
+
+        t = curve.get("t", [])
+        j = curve.get("j", [])
+        if t and j:
+            self._flux_chart.update_single_site(t, j, self._selected_site, best_model)
+
+        if scores:
+            self._hermia_chart.update_data(scores, best_model)
+
     def _on_site_change(self, e: ft.ControlEvent) -> None:
         self._selected_site = e.control.value
         self._refresh_tiles()
+        self._refresh_charts()
         self.page.update()
 
     # ------------------------------------------------------------------
@@ -114,8 +141,8 @@ class SiteMonitorPage:
 
         metrics_row = ft.Row(
             [
-                _tile("LRV",        self._val_lrv,        "log10"),
-                _tile("Amin",       self._val_amin,       "m2"),
+                _tile("LRV",        self._val_lrv,        "log₁₀"),
+                _tile("Amin",       self._val_amin,       "m²"),
                 _tile("Flux Ratio", self._val_flux_ratio, ""),
                 _tile("Best Model", self._val_best_model, ""),
                 _tile("Round",      self._val_round,      ""),
@@ -132,10 +159,18 @@ class SiteMonitorPage:
                     site_dd,
                     ft.Divider(color=LC.BORDER),
                     metrics_row,
-                    ft.Text("Flux Decline J(t)", size=16, color=LC.TEXT_PRIMARY),
+                    ft.Divider(color=LC.BORDER),
+                    ft.Text("Flux Decline  J(t)", size=16, color=LC.TEXT_PRIMARY,
+                            weight=ft.FontWeight.W_500),
                     self._flux_chart.build(),
-                    ft.Text("LRV vs Flux", size=16, color=LC.TEXT_PRIMARY),
+                    ft.Divider(color=LC.BORDER),
+                    ft.Text("LRV vs Flux Ratio — All Sites", size=16,
+                            color=LC.TEXT_PRIMARY, weight=ft.FontWeight.W_500),
                     self._lrv_chart.build(),
+                    ft.Divider(color=LC.BORDER),
+                    ft.Text("Hermia Model Fit Comparison", size=16,
+                            color=LC.TEXT_PRIMARY, weight=ft.FontWeight.W_500),
+                    self._hermia_chart.build(),
                 ],
                 scroll=ft.ScrollMode.AUTO,
                 expand=True,

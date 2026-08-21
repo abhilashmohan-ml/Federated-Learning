@@ -294,3 +294,28 @@ Applied full Liquid Carbon light-theme design system to all Flet UI pages.
   - [x] Tests: 567 green; color assertions updated to LC token values
   - [x] MCP: .mcp.json configured with figma-developer-mcp (FIGMA_API_KEY env var)
   - [x] CLAUDE.md: UI Design System section added (tokens, rules, MCP access)
+
+## Chart Fixes + Hermia Comparison (2026-08-21) — branch feature/fix-site-charts-hermia-comparison
+
+  - [x] fix(schemas): Added `fitted_flux_t`, `fitted_flux_j`, `model_scores` fields to
+        `ModelUpdate` so clients can transmit privacy-safe model predictions (not raw data)
+        and all-model Hermia scores to the server — commit 07a390c
+  - [x] feat(hermia): Added `predict_hermia_model(model_name, params, t)` helper to
+        `shared/models/hermia.py`; generates fitted J(t) predictions for any Hermia
+        model — commit 9a81c83
+  - [x] feat(trainer): `LocalTrainer` now builds 20-pt fitted J(t) curve via
+        `predict_hermia_model` and collects `{model: {rmse, aic, bic}}` for all 5 models;
+        both sent in `ModelUpdate` — commits 8745832, bdbba33
+  - [x] feat(server): `RoundManager` stores `_site_fitted_curves` and `_site_model_scores`
+        per-site; both exposed in `/internal/status` snapshot — commit a37e2b4
+  - [x] fix(flux_chart): Rewrote `FluxChart` single-site mode to render a real J(t)
+        line chart via new `update_single_site(t, j, site_id, model_name)`; multi-site
+        Amin bar chart unchanged — commits a3030e3, b6f6e53
+  - [x] fix(lrv_chart): Rewrote `LRVChart` to display LRV vs flux-ratio scatter (one
+        labelled point per site) instead of flux-ratio bars — commit a68b7a0
+  - [x] feat(hermia_comparison_chart): New `HermiaComparisonChart` component: RMSE bar
+        chart (best model in LC.SUCCESS green) + DataTable ranked by AIC — commit ebafbb3
+  - [x] feat(site_monitor): Wired all three charts into `SiteMonitorPage`; extended
+        `update_data()` with optional `site_fitted_curves`/`site_model_scores` kwargs;
+        `app.py` poll loop now reads and passes both from snapshot — commits bfa9975, e948c15
+        848 tests green; 100% coverage on shared/, server/core/, client/engine/
