@@ -53,9 +53,9 @@ class SiteMonitorPage:
         self._site_metrics      = site_metrics
         self._site_best_models  = site_best_models
         self._current_round_id  = current_round_id
-        if site_fitted_curves is not None:
+        if site_fitted_curves:
             self._site_fitted_curves = site_fitted_curves
-        if site_model_scores is not None:
+        if site_model_scores:
             self._site_model_scores = site_model_scores
 
         self._refresh_tiles()

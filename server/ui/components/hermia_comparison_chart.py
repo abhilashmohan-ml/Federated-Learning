@@ -72,7 +72,6 @@ class HermiaComparisonChart:
             size=12,
             color=LC.TEXT_MUTED,
         )
-        self._table_rows: list[ft.DataRow] = []
         self._table = ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("Model",      size=11, color=LC.TEXT_SECONDARY)),
@@ -161,7 +160,7 @@ class HermiaComparisonChart:
                     self._placeholder,
                     ft.Container(content=self._img, height=220, expand=True),
                     ft.Text(
-                        "Ranked by AIC ↑ — best model highlighted",
+                        "Sorted by AIC ascending — lower is better, winner highlighted",
                         size=10,
                         color=LC.TEXT_MUTED,
                     ),

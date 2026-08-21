@@ -3,8 +3,9 @@ import pytest
 import flet as ft
 
 from server.ui.components.site_card      import SiteCard, STATUS_COLORS
-from server.ui.components.flux_chart     import FluxChart, SITE_COLORS, _SITES, _render_amin_png, _render_jt_png
-from server.ui.components.lrv_chart      import LRVChart, _SITES as _LRV_SITES, _COLORS, _render_lrv_scatter_png
+from server.ui.components.flux_chart              import FluxChart, SITE_COLORS, _SITES, _render_amin_png, _render_jt_png
+from server.ui.components.lrv_chart               import LRVChart, _SITES as _LRV_SITES, _COLORS, _render_lrv_scatter_png
+from server.ui.components.hermia_comparison_chart import HermiaComparisonChart, _render_hermia_bar_png
 from server.ui.components.metric_tile    import MetricTile
 from server.ui.components.nav_rail       import build_nav_rail
 from server.ui.components.round_timeline import RoundTimeline
@@ -243,6 +244,85 @@ class TestLRVChart:
         lrv = LRVChart()
         lrv.update_data({"site_1": {"lrv": 0.0, "flux_ratio": 0.0}})
         assert lrv._img.visible is False
+
+
+# ---------------------------------------------------------------------------
+# hermia_comparison_chart
+# ---------------------------------------------------------------------------
+
+_SAMPLE_SCORES: dict[str, dict[str, float]] = {
+    "standard":     {"rmse": 2.5,  "aic": 55.0, "bic": 58.0},
+    "complete":     {"rmse": 3.1,  "aic": 60.0, "bic": 63.0},
+    "intermediate": {"rmse": 1.8,  "aic": 50.0, "bic": 53.0},
+    "cake":         {"rmse": 2.0,  "aic": 52.0, "bic": 55.0},
+    "combined_1a":  {"rmse": 4.0,  "aic": 70.0, "bic": 74.0},
+}
+
+
+class TestHermiaComparisonChart:
+    def test_init_img_not_visible(self) -> None:
+        hc = HermiaComparisonChart()
+        assert hc._img.visible is False
+
+    def test_init_table_not_visible(self) -> None:
+        hc = HermiaComparisonChart()
+        assert hc._table.visible is False
+
+    def test_build_returns_container(self) -> None:
+        hc = HermiaComparisonChart()
+        assert isinstance(hc.build(), ft.Container)
+
+    def test_render_bar_png_returns_png_bytes(self) -> None:
+        data = _render_hermia_bar_png(_SAMPLE_SCORES, "intermediate")
+        assert isinstance(data, bytes)
+        assert data[:4] == b"\x89PNG"
+
+    def test_update_data_sets_img_and_table_visible(self) -> None:
+        hc = HermiaComparisonChart()
+        hc.update_data(_SAMPLE_SCORES, "intermediate")
+        assert hc._img.visible is True
+        assert hc._img.src != b""
+        assert hc._table.visible is True
+
+    def test_update_data_builds_five_rows(self) -> None:
+        hc = HermiaComparisonChart()
+        hc.update_data(_SAMPLE_SCORES, "intermediate")
+        assert len(hc._table.rows) == 5
+
+    def test_update_data_table_sorted_by_aic(self) -> None:
+        hc = HermiaComparisonChart()
+        hc.update_data(_SAMPLE_SCORES, "intermediate")
+        # First row must be model with lowest AIC (intermediate=50.0)
+        first_cell_text = hc._table.rows[0].cells[0].content.value
+        assert "Intermediate" in first_cell_text
+
+    def test_update_data_winner_row_uses_success_color(self) -> None:
+        hc = HermiaComparisonChart()
+        hc.update_data(_SAMPLE_SCORES, "intermediate")
+        # Find the best-model row
+        best_row = next(
+            r for r in hc._table.rows
+            if r.cells[4].content.value == "✓"
+        )
+        assert best_row.cells[0].content.color == LC.SUCCESS
+
+    def test_update_data_non_winner_rows_use_primary_color(self) -> None:
+        hc = HermiaComparisonChart()
+        hc.update_data(_SAMPLE_SCORES, "intermediate")
+        non_best = [r for r in hc._table.rows if r.cells[4].content.value != "✓"]
+        for row in non_best:
+            assert row.cells[0].content.color == LC.TEXT_PRIMARY
+
+    def test_update_data_empty_scores_is_noop(self) -> None:
+        hc = HermiaComparisonChart()
+        hc.update_data({}, "intermediate")
+        assert hc._img.visible is False
+        assert hc._table.visible is False
+
+    def test_update_data_stores_best_model(self) -> None:
+        hc = HermiaComparisonChart()
+        hc.update_data(_SAMPLE_SCORES, "cake")
+        assert hc._best_model == "cake"
 
 
 # ---------------------------------------------------------------------------
