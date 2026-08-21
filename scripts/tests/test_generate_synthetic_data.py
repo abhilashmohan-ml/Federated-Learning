@@ -145,6 +145,22 @@ class TestGenerate:
         df = pd.read_csv(tmp_path / "data" / "site_test" / "filtration.csv")
         assert (df["flux_lmh"] >= 1.0).all()
 
+    def test_lrv_csv_has_correct_columns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """lrv_measurements.csv must have time_min, lrv, flux_lmh with 9 rows (0,15,...,120)."""
+        monkeypatch.chdir(tmp_path)
+        generate("site_1", SITE_CONFIGS["site_1"])
+        df = pd.read_csv(tmp_path / "data" / "site_1" / "lrv_measurements.csv")
+        assert set(df.columns) == {"time_min", "lrv", "flux_lmh"}
+        assert len(df) == 9  # np.arange(0, 121, 15) → 0, 15, 30, ..., 120
+
+
+# Sites where AIC deterministically selects the correct model on noiseless data.
+# site_3 (standard) is excluded: standard is nested in combined_1a (k2 = 0), so
+# AIC may select combined_1a for site_3 noiseless data — both are acceptable.
+DETERMINISTIC_SITES = ["site_1", "site_2", "site_4", "site_5"]
+
 
 # ── AIC regime selection end-to-end tests ─────────────────────────────────────
 
@@ -154,28 +170,28 @@ class TestAICRegimeSelection:
     Key tests: data generated from each model must have AIC select that model.
     These are the tests that prove the bug is fixed.
 
-    Note on site_1 (standard):
+    Note on site_3 (standard):
         Standard blocking is mathematically a special case of Combined 1-A with
-        k2 = 0.  On noiseless float64 data the Combined 1-A optimizer can absorb
-        floating-point rounding with k2 > 0, achieving a lower RSS than the
+        k2 = 0.  On noiseless float64 data the Combined 1-A optimizer absorbs
+        floating-point rounding via k2 > 0, achieving a lower RSS than the
         2-parameter standard fit.  AIC therefore legitimately selects combined_1a
-        for site_1 data; both "standard" and "combined_1a" are acceptable winners.
-        Sites 2–5 use models whose functional forms are NOT special cases of each
-        other, so AIC correctly identifies them (see test_sites_2_to_5_have_distinct_regimes).
+        for site_3 data; both "standard" and "combined_1a" are acceptable winners.
+        Sites 1, 2, 4, 5 use models with non-nested functional forms and each
+        correctly identifies the underlying model (see test_deterministic_sites_have_distinct_regimes).
     """
 
     @pytest.mark.parametrize(
         "site_id,expected_models",
         [
-            # standard ⊂ combined_1a (k2=0), so either winner is acceptable
-            ("site_1", {"standard", "combined_1a"}),
+            ("site_1", {"intermediate"}),
             ("site_2", {"complete"}),
-            ("site_3", {"intermediate"}),
+            # standard ⊂ combined_1a (k2=0): either winner is acceptable
+            ("site_3", {"standard", "combined_1a"}),
             ("site_4", {"cake"}),
             ("site_5", {"combined_1a"}),
         ],
     )
-    def test_aic_selects_correct_regime(self, site_id: str, expected_models: set) -> None:
+    def test_aic_selects_correct_regime(self, site_id: str, expected_models: set[str]) -> None:
         """
         Generate noiseless flux for the site, fit all Hermia models,
         and assert the AIC winner is within the expected set for that site.
@@ -189,20 +205,21 @@ class TestAICRegimeSelection:
             f"got '{best.model_name}' (AIC={best.aic:.1f})"
         )
 
-    def test_sites_2_to_5_have_distinct_regimes(self) -> None:
+    def test_deterministic_sites_have_distinct_regimes(self) -> None:
         """
-        Sites 2–5 (complete / intermediate / cake / combined_1a) each have a
-        distinct functional form — AIC must select a different winner for each.
+        DETERMINISTIC_SITES (intermediate / complete / cake / combined_1a) each
+        have distinct functional forms — AIC must select a different winner for each.
 
-        Site 1 (standard) is excluded because standard is a degenerate case of
-        combined_1a (k2 = 0); see class docstring for the mathematical explanation.
+        site_3 (standard) is excluded: standard is a degenerate case of combined_1a
+        (k2 = 0); see class docstring for the mathematical explanation.
         """
         winners: list[str] = []
-        for site_id, cfg in list(SITE_CONFIGS.items())[1:]:  # site_2 … site_5
+        for site_id in DETERMINISTIC_SITES:
+            cfg = SITE_CONFIGS[site_id]
             flux = _flux_for_model(cfg, TIME)
             results = fit_all_models(TIME, flux)
             best = next(r for r in results.values() if r.selected)
             winners.append(best.model_name)
         assert len(winners) == len(
             set(winners)
-        ), f"Duplicate AIC winners across sites 2–5: {winners}"
+        ), f"Duplicate AIC winners across {DETERMINISTIC_SITES}: {winners}"

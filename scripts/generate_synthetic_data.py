@@ -4,9 +4,9 @@ Generate synthetic viral filtration data for all 5 sites.
 Each site uses a DIFFERENT underlying Hermia fouling model so that AIC-based
 model selection produces variety across sites (one regime per site).
 
-  site_1 — Standard blocking     J(t) = J0 / (1 + ks*t)^2
+  site_1 — Intermediate blocking J(t) = J0 / (1 + J0*ki*t)
   site_2 — Complete blocking     J(t) = J0 * exp(-kc*t)
-  site_3 — Intermediate blocking J(t) = J0 / (1 + J0*ki*t)
+  site_3 — Standard blocking     J(t) = J0 / (1 + ks*t)^2
   site_4 — Cake filtration       J(t) = J0 / sqrt(1 + J0^2*kcf*t)
   site_5 — Combined 1-A          J(t) = J0/(1+k1*t)^2 * exp(-k2*t)
 
@@ -23,9 +23,9 @@ np.random.seed(42)
 SITE_CONFIGS = {
     "site_1": {
         "filter": "Planova_20N",
-        "model": "standard",
-        "J0": 150.0,
-        "ks": 0.015,
+        "model": "intermediate",
+        "J0": 180.0,
+        "ki": 3.0e-4,
         "noise": 2.0,
         "tmp_base": 1.0,
         "lrv_mean": 4.8,
@@ -43,9 +43,9 @@ SITE_CONFIGS = {
     },
     "site_3": {
         "filter": "Pegasus_SV4",
-        "model": "intermediate",
-        "J0": 180.0,
-        "ki": 3.0e-4,
+        "model": "standard",
+        "J0": 150.0,
+        "ks": 0.015,
         "noise": 1.5,
         "tmp_base": 0.8,
         "lrv_mean": 4.6,
