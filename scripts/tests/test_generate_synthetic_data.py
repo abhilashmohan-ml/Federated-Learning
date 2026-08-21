@@ -199,7 +199,8 @@ class TestAICRegimeSelection:
         cfg = SITE_CONFIGS[site_id]
         flux = _flux_for_model(cfg, TIME)  # noiseless — maximise AIC signal
         results = fit_all_models(TIME, flux)
-        best = next(r for r in results.values() if r.selected)
+        best = next((r for r in results.values() if r.selected), None)
+        assert best is not None, f"{site_id}: no model was selected"
         assert best.model_name in expected_models, (
             f"{site_id}: expected AIC winner in {expected_models}, "
             f"got '{best.model_name}' (AIC={best.aic:.1f})"
@@ -218,7 +219,8 @@ class TestAICRegimeSelection:
             cfg = SITE_CONFIGS[site_id]
             flux = _flux_for_model(cfg, TIME)
             results = fit_all_models(TIME, flux)
-            best = next(r for r in results.values() if r.selected)
+            best = next((r for r in results.values() if r.selected), None)
+            assert best is not None, f"{site_id}: no model was selected"
             winners.append(best.model_name)
         assert len(winners) == len(
             set(winners)

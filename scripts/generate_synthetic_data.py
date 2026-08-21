@@ -14,6 +14,8 @@ Run from project root:
     python scripts/generate_synthetic_data.py
 """
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -75,7 +77,7 @@ SITE_CONFIGS = {
 }
 
 
-def _flux_for_model(cfg: dict, time: np.ndarray) -> np.ndarray:
+def _flux_for_model(cfg: dict[str, Any], time: np.ndarray) -> np.ndarray:
     """Return noiseless flux array using the model specified in cfg['model']."""
     J0 = cfg["J0"]
     model = cfg["model"]
@@ -92,7 +94,7 @@ def _flux_for_model(cfg: dict, time: np.ndarray) -> np.ndarray:
     raise ValueError(f"Unknown model: {model!r}")
 
 
-def generate(site_id: str, cfg: dict) -> None:
+def generate(site_id: str, cfg: dict[str, Any]) -> None:
     out = Path(f"data/{site_id}")
     out.mkdir(parents=True, exist_ok=True)
 
