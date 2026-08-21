@@ -1,71 +1,78 @@
 # WORKPLAN.md  —  Viral Filtration FL Build Plan
 
 ## Phase 1: Foundation  (Weeks 1-2)
-  - [ ] Set up virtual environments and install deps
-  - [ ] Implement shared/models/hermia.py  (6 models + AIC/BIC)
-  - [ ] Implement shared/models/manabe.py  (Pc, LRV)
-  - [ ] Implement shared/models/polarization.py
-  - [ ] Implement shared/models/combined_1a.py
-  - [ ] Unit tests for all mechanistic models  (target >80% coverage)
-  - [ ] Notebook 01: Hermia model exploration with synthetic data
-  - [ ] Notebook 02: Manabe LRV fitting exploration
+  - [x] Set up virtual environments and install deps
+  - [x] Implement shared/models/hermia.py  (6 models + AIC/BIC)
+  - [x] Implement shared/models/manabe.py  (Pc, LRV)
+  - [x] Implement shared/models/polarization.py
+  - [x] Implement shared/models/combined_1a.py
+  - [x] Unit tests for all mechanistic models  (target >80% coverage)
+  - [x] Notebook 01: Hermia model exploration with synthetic data
+  - [x] Notebook 02: Manabe LRV fitting exploration
 
 ## Phase 2: PINN Architecture  (Weeks 3-4)
-  - [ ] Design input feature vector (filter + process descriptors)
-  - [ ] Implement shared/models/pinn.py  (param predictor + physics solver)
-  - [ ] Implement shared/crypto/noise.py  (Gaussian DP)
-  - [ ] Implement all Pydantic v2 schemas in shared/schemas/
-  - [ ] Notebook 03: PINN architecture validation
-  - [ ] Achieve >80% test coverage on shared/
+  - [x] Design input feature vector (filter + process descriptors)
+  - [x] Implement shared/models/pinn.py  (param predictor + physics solver)
+  - [x] Implement shared/crypto/noise.py  (Gaussian DP)
+  - [x] Implement all Pydantic v2 schemas in shared/schemas/
+  - [x] Notebook 03: PINN architecture validation
+  - [x] Achieve >80% test coverage on shared/
 
 ## Phase 3: Client Engine  (Week 5)
-  - [ ] client/engine/data_loader.py
-  - [ ] client/engine/local_trainer.py  (FedProx gradient)
-  - [ ] client/engine/scheduler.py
-  - [ ] client/comms/fl_client.py
-  - [ ] client/comms/heartbeat.py
-  - [ ] scripts/generate_synthetic_data.py  (5-site datasets)
-  - [ ] Test local training loop end-to-end
+  - [x] client/engine/data_loader.py
+  - [x] client/engine/local_trainer.py  (FedProx gradient)
+  - [x] client/engine/scheduler.py
+  - [x] client/comms/fl_client.py
+  - [x] client/comms/heartbeat.py
+  - [x] scripts/generate_synthetic_data.py  (5-site datasets)
+  - [x] Test local training loop end-to-end
 
 ## Phase 4: Server Core  (Week 6)
-  - [ ] server/db/  (SQLAlchemy + Alembic migration 001)
-  - [ ] server/core/aggregator.py  (FedProx)
-  - [ ] server/core/round_manager.py  (state machine)
-  - [ ] server/core/model_registry.py
-  - [ ] server/api/  (FastAPI: auth, federation, models, health)
-  - [ ] scripts/init_db.py
-  - [ ] Test aggregation with 5 synthetic site updates
+  - [x] server/db/  (SQLAlchemy + Alembic migration 001)
+  - [x] server/core/aggregator.py  (FedProx)
+  - [x] server/core/round_manager.py  (state machine)
+  - [x] server/core/model_registry.py
+  - [x] server/api/  (FastAPI: auth, federation, models, health)
+  - [x] scripts/init_db.py
+  - [x] Test aggregation with 5 synthetic site updates
 
 ## Phase 5: Authentication & Security  (Week 7)
-  - [ ] JWT issue / refresh / revoke  (server/api/auth.py)
-  - [ ] Site certificate generation  (scripts/generate_certs.sh)
-  - [ ] Differential Privacy integration in client upload
-  - [ ] Secure aggregation  (shared/crypto/secure_agg.py)
-  - [ ] End-to-end auth test across server + 5 clients
+  - [x] JWT issue / refresh / revoke  (server/api/auth.py)
+  - [x] Site certificate generation  (scripts/generate_certs.sh)
+  - [x] Differential Privacy integration in client upload
+  - [x] Secure aggregation  (shared/crypto/secure_agg.py)
+  - [x] End-to-end auth test across server + 5 clients
 
 ## Phase 6: Server Flet UI  (Week 8)
-  - [ ] server/ui/app.py  (nav rail + routing)
-  - [ ] pages/dashboard.py  (all sites + round progress)
-  - [ ] pages/site_monitor.py  (per-site J(t), LRV, Amin charts)
-  - [ ] pages/global_model.py  (params + performance)
-  - [ ] pages/graphs.py  (comparative charts across all sites)
-  - [ ] pages/settings.py  (site management)
-  - [ ] All component widgets
+  - [x] server/ui/app.py  (nav rail + routing)
+  - [x] pages/dashboard.py  (all sites + round progress)
+  - [x] pages/site_monitor.py  (per-site J(t), LRV, Amin charts)
+  - [x] pages/global_model.py  (params + performance)
+  - [x] pages/graphs.py  (comparative charts across all sites)
+  - [x] pages/settings.py  (site management)
+  - [x] All component widgets
 
 ## Phase 7: Client Flet UI  (Week 9)
   - [x] client/ui/app.py — constructs FLClient, calls authenticate(), passes fl_client to StatusPage
   - [x] pages/status.py — Trigger Manual Round button wired to FLClient.start_round() on daemon thread
-  - [ ] pages/local_results.py
+  - [x] pages/local_results.py — J(t) flux chart (matplotlib Agg PNG), LRV/Amin/flux-ratio metrics
 
 ## Phase 8: Docker & Integration  (Week 10)
-  - [ ] server/Dockerfile
-  - [ ] client/Dockerfile
-  - [ ] docker-compose.yml  (server + db + 5 clients)
-  - [ ] Notebook 04: full federated round simulation
-  - [ ] scripts/run_simulation.py
-  - [ ] scripts/visualise_results.py
+  - [x] server/Dockerfile
+  - [x] client/Dockerfile
+  - [x] docker-compose.yml  (server + db + 5 clients, full network isolation)
+  - [x] Notebook 04: full federated round simulation
+  - [x] scripts/run_simulation.py
+  - [x] scripts/visualise_results.py
 
 ## Bug Fixes
+  - [x] fix(scripts): synthetic data generator now assigns a distinct Hermia fouling model
+         per site (site_1=intermediate, site_2=complete, site_3=standard, site_4=cake,
+         site_5=combined_1a) so AIC selection produces variety across sites rather than
+         always returning "combined_1a". Added 22-test suite in scripts/tests/.
+         Note: standard blocking is a degenerate case of combined_1a (k2→0); site_3
+         (standard) may resolve to combined_1a under AIC — documented in test docstrings.
+         Branch: fix/vary-hermia-regime
   - [x] fix(client/config): port collision + 401 auth in dev multi-site mode —
          `flet_client_port` and `site_secret` now auto-derived as `@computed_field`
          from `SITE_ID`; only `SITE_ID` env var needed to launch any site client.
@@ -255,6 +262,14 @@ All 5 bugs fixed; 749 tests green; ruff and mypy --strict clean.
         startup retry loop added in __main__ (handles Docker Compose server-not-ready race).
         232 tests green, 100% coverage on client/engine/scheduler.py, client/main.py,
         client/comms/fl_client.py — branch fix/manual-round-per-site
+
+## UI Fixes — Server Monitor & Client (2026-08-19 to 2026-08-20) — master
+
+  - [x] feat(server-ui): Merck M logo and live UTC clock in dashboard header — commit 62c5b34
+  - [x] fix(server-ui): wire Site Monitor page to poll loop — tiles and charts now update live — commit 03a3d1e
+  - [x] fix(lrv): compute and display LRV on all site clients — commit b0079b2
+  - [x] fix(site-monitor): populate LRV tile in Site Monitor _refresh_tiles — commit c0c8c06
+  - [x] feat(client-ui): animated spinner + phase labels on manual trigger button — commit be22b43
 
 ## UI — Liquid Carbon Design System (2026-08-19) — branch fix/manual-round-per-site
 
