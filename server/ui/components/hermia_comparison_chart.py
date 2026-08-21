@@ -83,7 +83,10 @@ class HermiaComparisonChart:
             ],
             rows=[],
             heading_row_color={ft.ControlState.DEFAULT: LC.BG_SECONDARY},
-            border=ft.border.all(1, LC.BORDER),
+            border=ft.Border(
+                left=ft.BorderSide(1, LC.BORDER), right=ft.BorderSide(1, LC.BORDER),
+                top=ft.BorderSide(1, LC.BORDER),  bottom=ft.BorderSide(1, LC.BORDER),
+            ),
             border_radius=8,
             show_bottom_border=True,
             visible=False,
@@ -169,6 +172,9 @@ class HermiaComparisonChart:
             padding=16,
             bgcolor=LC.SURFACE,
             border_radius=LC.RADIUS_MD,
-            border=ft.border.all(1, LC.BORDER),
+            border=ft.Border(
+                left=ft.BorderSide(1, LC.BORDER), right=ft.BorderSide(1, LC.BORDER),
+                top=ft.BorderSide(1, LC.BORDER),  bottom=ft.BorderSide(1, LC.BORDER),
+            ),
             expand=True,
         )
